@@ -6,6 +6,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
+library(rmutil)
 ```
 
 #### Cele
@@ -189,42 +190,125 @@ zad4_1.results <- rbind(z4_1_05[[1]], z4_1_1[[1]], z4_1_2[[1]], z4_1_5[[1]])
 data.frame(theta = factor(rep(c(0.5, 1, 2, 5), each = 10000)), fisher = c(z4_1_05[[2]], z4_1_1[[2]], z4_1_2[[2]], z4_1_5[[2]])) %>% 
   ggplot(aes(x = theta, y = fisher, group = theta))+ 
   geom_boxplot() + 
-  labels(x = 'theta', y = '', title = 'Jakie wartości przyjmuje ENW informacji Fishera',
+  labs(x = 'theta', y = '', title = 'Jakie wartości przyjmuje ENW informacji Fishera',
          subtitle = 'Wykresy pudełkowe dla wybranych wartości parametru') +
   theme_bw() +
   theme(plot.title.position = 'plot')
 ```
 
-W dalszej części za zapamiętaną wartość estymatora $\hat{I(\theta)}$ przyjmiemy średnią arytmetyczną wyników - takie oszacowanie powinno mieć tym mniejsze znaczenie, im większa będzie wartość $\theta$ ze względu na mniejszy rozrzut estymatora. 
-Prezentowane wyniki są obliczane dla innych prób losowych niż użyte wcześniej.
+W dalszej części za zapamiętaną wartość estymatora $\hat{I(\theta)}$ przyjmiemy średnią arytmetyczną wyników - takie oszacowanie powinno mieć tym mniejsze znaczenie, im większa będzie wartość $\theta$ ze względu na mniejszy rozrzut estymatora. Uwagi : 
+
+1. prezentowane wyniki są obliczane dla innych prób losowych niż użyte wcześniej. 
+2. krzywa normalna naniesiona na histogramy rysowana jest z użyciem średniej i odchylenia standardowego liczonych dla wszystkich wartości $Y$ (tzn. $\theta = 0.5, 1, 2, 5$). Nie robi to dużej różnicy, gdyż indywidualne wyniki są pbardzo podobne.
 
 ```{r}
-zadanie4_2 <- function(th, mean_I, n = 50, iter = 10000, seed = 38){
+zadanie4_2 <- function(th, n = 50, iter = 10000, seed = 38){
   # def. zmienna Y
   Y <- function(n, th, th_est, mean_I){
     return((th_est-th)*sqrt(n*mean_I))
   }
+  # z wyników poprzedniego zadania wybiorę wartość średniej informacji fishera
+  mean_I <- zad4_1.results %>% filter(n == n & theta == th) %>% pull(mean_I)
   # losowanie próby
   set.seed(seed)
   X <- numeric(0) # tu będą dołączane wyniki każdego z eksperymentów, wartości Y
   for (i in 1:iter){
     sample <- rbeta(n, th, 1)
     mleX <- mle_beta1(sample)
-    X[i] <- fisher(mleX)
-  results <- data.frame(n = n,
-                        theta = th,
-                        MSE = do.call(function(X){mean((X-fisher(th))^2)}, list(X)), 
-                        bias = do.call(function(X){mean(X-fisher(th))}, list(X)),
-                        var = do.call(var, list(X)),
-                        mean_I = mean(X),
-                        real_I = fisher(th))
+    X[i] <- Y(n, th, mleX, mean_I)
   }
-  # w wyniku zwracam podsumowanie (results) oraz wektor obliczonych informacji Fishera, żeby rysować z niego boxplota
-  return(list(results, X))
-  
-  
+  return(X)
 }
+
+Y50_05 <- zadanie4_2(0.5)
+Y50_1 <- zadanie4_2(1)
+Y50_2 <- zadanie4_2(2)
+Y50_5 <- zadanie4_2(5)
+
+# tworzę dataframe ze wszystkimi wektorami Y do wykonania histogramów
+Y.dtf <- data.frame(th = factor(rep(c(0.5, 1, 2, 5), each = 10000)),
+                    n = factor(rep.int(50, 40000)),
+                    y = c(Y50_05, Y50_1, Y50_2, Y50_5))
+
+# obl. średnich i sd odpowiednich grup
+Y.summary <-
+  Y.dtf %>%
+  group_by(th) %>%
+  summarize(mean = mean(y), sd = sd(y))
+knitr::kable(Y.summary, caption = 'Tabela 2: Porównanie średniej i wariancji Y dla różnych wartości parametru')
+```
+```{r}
+ggplot(Y.dtf) +
+  geom_histogram(aes(x = y, y = ..density..), color = 'black', fill = 'grey') +
+  labs(x = '', y = '', title = 'Histogramy gęstości uzyskanych wartości Y dla różnych wartości theta; n = 50') +
+  theme_bw() +
+  theme(plot.title.position = 'plot') +
+  stat_function(fun = dnorm, col = 'navy', args = list(mean = mean(Y.dtf$y), sd = sd(Y.dtf$y))) +
+  facet_wrap(~th)
 ```
 
-Cośtam se pisze
+```{r}
+ggplot(Y.dtf, aes(sample = y)) + geom_qq() + stat_qq_line() + facet_wrap(~th) +
+  theme_bw() +
+  theme(plot.title.position = 'plot') +
+  labs(x = '', y = '', title = 'Wykresy kwanntylowo-kwantylowe wielkości Y dla różnych theta',
+       subtitle = 'Czy rozkład jest normalny?')
+```
+
+Wygląd wykresów pozwala stwierdzić, że rozkład wielkości $Y$ jest bardzo bliski rozkładowi normalnemu i lekko skośny względem niego.
+
+#### Zadanie 5
+```{r}
+z5 <- function(s, th, n = 50, iter = 10000, show_theta = FALSE, seed = 1){
+  # ust. ziarno generatora
+  set.seed(seed)
+  # utworzenie wektorów wag do definicji theta3 i theta4
+  an <- 0:n/n
+  w1 <- rnorm(n) %>% (function(v){v/sum(v)}) 
+  w2 <- dnorm(qnorm(an[-n])) - dnorm(qnorm(an[-1]))
+  # utworzenie dataframe do dołączania wyników poszczególnych eksperymentów
+  theta.dtf <- data.frame(th1 = numeric(0), 
+                          th2 = numeric(0),
+                          th3 = numeric(0),
+                          th4 = numeric(0)) 
+  # powtórzenie eksperymentu [iter] razy
+  for (i in 1:iter){
+    # losowanie próby z rozkładu normalnego
+    X <- rlaplace(n, th, s)
+    # tworzenie wektora wartości theta
+    theta <- c(th1 = mean(X),
+               th2 = median(X),
+               th3 = do.call(function(x){w1%*%x}, list(X)),
+               th4 = do.call(function(x){w2%*%sort(x)}, list(X)))
+    # dołączenie nowych wartości theta do macierzy z wartościami theta iter x 4
+    theta.dtf[i, 1:4] <- theta
+  }
+  # możemy w tym momencie sprawdzić jak wygląda theta.dtf ([iter] x 4)
+  if (show_theta){print(head(theta.dtf, 4))}
+  # def. odpowiednie funkcje
+  MSE <- function(x){mean((x-th)^2)}
+  bias <- function(x){mean(x-th)}
+  # zwracamy podsumowanie jako wynik funkcji zadanie5
+  data.frame(MSE = sapply(theta.dtf, MSE),
+             bias = sapply(theta.dtf, bias),
+             var = sapply(theta.dtf, var)) %>% return()
+}
+
+z5.50_1_1 <- z5(1,1)
+z5.50_1_4 <- z5(1,4)
+z5_50_2_1 <- z5(2,1)
+knitr::kable(z5.50_1_1, caption = 'Tabela 4: Wyniki zadania 5c')
+```
+
+Przypadku wszystkich testowanych wartości parametrów najlepszym estymatorem okazał się \theta_2$, czyli mediana. Nie ma w tym nic dziwnego - poprzednio była nim średnia, która jest ENW parametru dla rozkładu normalnego, a mediana jest ENW parametru dla rozkładu Laplace'a.
+
+#### Zadanie 6.1
+```{r}
+for (p in c(0:100/100)){
+  zad1.results[nrow(zad1.results)+1, 1:ncol(zad1.results)] <- zadanie1(p, n = 10, seed = 108)
+}
+for (p in c(0:100/100)){
+  zad1.results[nrow(zad1.results)+1, 1:ncol(zad1.results)] <- zadanie1(p, n = 100, seed = 108)
+}
+```
 

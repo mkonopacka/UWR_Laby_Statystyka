@@ -1,0 +1,338 @@
+---
+title: "Laboratiorium 2 ze statystyki"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rmutil)
+pdf.options(encoding = 'CP1250')
+```
+
+#### Cele
+* Celem zadań 1,2 i 4 jest zastosowanie twierdzenia z wykładu mówiącego, że jeśli $\hat{\theta}$ jest ENW parametru $\theta$ a $g = g(\theta)$ funkcją parametru $\theta$, to $g(\hat{\theta})$ jest ENW wielkości $g$ i porównanie wyników z oczekiwaniami. 
+* W zadaniu 4 użyjemy wykresu kwantylowego do sprawdzenia czy rozkład danych jest normalny.
+* Zadanie 5 to porównanie wyników eksperymentalnego wyznaczania ENW dla rozkładów: normalnego i Laplace'a. 
+* W zadaniu 6 sprawdzamy, jaki wpływ na szacowania ma rozmiar próby. 
+
+Każde z zadań zawiera krótkie podsumowanie.
+
+#### Zadanie 1 - rozkład dwumianowy
+Wielkość $P(X \leq 3)$ jest funkcją parametru $p$: 
+$$P(p) = {5 \choose 3}p^3(1-p)^{1-3} + {5 \choose 4}p^4(1-p)^{1-4} + {5 \choose 5}p^5(1-p)^{1-5}$$
+stąd estymator nawiększej wiarogodności $P$ otrzymamy wyznaczając ENW $p$ (dla tego rozkładu jest nim proporcja sukcesów) i przekazując otrzymaną wartość do funkcji $P(p)$. 
+
+```{r echo=FALSE}
+prob1 <- function(p){ # P(X >= 3) jako funkcja parametru p
+  sum = 0
+  for (k in 3:5){sum = sum + choose(5,k)*p^k*(1-p)^(5-k)}
+  return (sum)
+}
+
+zadanie1 <- function(p, n = 50, iter = 10000, seed = 1){
+  set.seed(seed)
+  # tu będą dołączane średnie odsetki sukcesów kazdego z 10000 eksperymentów
+  X <- numeric(0)
+  for (i in 1:iter){
+    sample <- rbinom(n, 5, p)
+    X[i] <- mean(sample)/5
+  }
+  # jak wygląda rozkład estymatora?
+  # hist(X, freq = FALSE, main = paste('Rozkład estymatora parametru p dla próby z rozkładu b(5,', p, ')', sep = ''))
+
+  # obl. estymatora P(X >= 3) za pomocą funkcji prob1, patrz. twierdzenie z wykładu
+  P <- sapply(X, prob1)
+  # hist(P, freq = FALSE, main = paste('Rozkład estymatora P(X >= 3) dla próby z rozkładu b(5,', p, ')', sep = ''))
+  
+  results <- data.frame(p = p,
+                        n = n,
+                        MSE = do.call(function(x){mean((x-p)^2)}, list(P)), 
+                        bias = do.call(function(x){mean(x-p)}, list(P)),
+                        var = do.call(var, list(X)))
+  return(results)
+}
+
+zad1.results <- data.frame(p = numeric(0), n = numeric(0), MSE = numeric(0), bias = numeric(0), var = numeric(0))
+for (p in c(0:100/100)){
+  zad1.results[nrow(zad1.results)+1, 1:ncol(zad1.results)] <- zadanie1(p, seed = 108)
+}
+
+# jak MSE zależy od p?
+plot1 <- 
+  zad1.results %>% 
+  gather(key = 'funkcja', value = 'wynik', MSE, bias, var) %>% 
+  group_by(funkcja) %>% 
+  ggplot(aes(p, wynik)) + 
+    geom_line(aes(col = funkcja), size = 2) + 
+    theme_bw() +
+    theme(plot.title.position = 'plot', 
+          legend.position = "bottom", 
+          legend.title = element_blank()) +
+    labs(title = 'Wykres zależności błędu ENW wielkości P(X <= 3) od parametru p', x ='p', y = '')
+
+# wyświetlam wyniki:
+zad1.results %>% 
+  filter(p %in% c(0.1, 0.3, 0.5, 0.9)) %>%
+  knitr::kable(caption = 'Średni błąd kwadratowy, wariancja i obciążenie estymatora największej wiarogodności P dla wybranych wartości parametru')
+```
+
+1. Estymowane wartości $P(X \leq 3)$ są bliskie prawdziwym teoretycznym wartościom, a MSE, obciążenie i wariancja małe - oznacza to, że wybrany sposób estymacji jest bardzo dobry.
+2. Wykonując dodatkowe eksperymenty można zauważyć, że wartości MSE, obciążenia i wariancji są symetryczne względem $p = 0.5$.
+
+```{r echo=FALSE}
+plot1
+```
+
+#### Zadanie 2 - rozkład Poissona
+Estymatorem największej wiarogodności parametru $\lambda$ jest średnia arytmetyczna. W celu wyznaczenia ENW $P(X = x)$, korzystamy z tego samego sposobu co w zadaniu 1.
+
+```{r echo=FALSE}
+zadanie2 <- function(l, n = 50, iter = 10000, seed = 1){
+  set.seed(seed)
+  results <- data.frame(x = numeric(0),
+                        n = numeric(0),
+                        lambda = numeric(0),
+                        MSE = numeric(0),
+                        bias = numeric(0),
+                        var = numeric(0))
+  
+  # wektor na szacowane wartości lambda dla każdego z 10000 eksperymentów
+  lambda <- numeric(0)
+  # każdy eksperyment powtarzany jest dla 10 różnych wartości x
+  for (x in 1:10){
+    for (i in 1:iter){
+      lambda[i] <- mean(rpois(n, l)) 
+    }
+    P <- dpois(x, lambda) 
+    # doł. wyniki do dataframe z wynikami 
+    results[nrow(results)+1, 1:ncol(results)] <- c(x = x,
+                                                   n = n,
+                 lambda = l,
+                 MSE = do.call(function(x){mean((x-l)^2)}, list(P)),
+                 bias = do.call(function(x){mean(x-l)}, list(P)),
+                 var = do.call(var, list(P)))
+  }
+  return(results)
+}
+
+# wyniki dla różnych lambda i wykresy
+zad2.results <- zadanie2(0.5) %>% rbind(zadanie2(1)) %>% rbind(zadanie2(2)) %>% rbind(zadanie2(5))
+
+zad2.results %>% 
+  mutate(lambda = factor(lambda)) %>% 
+  gather(key = 'mb', value = 'w', MSE:var) %>% 
+  ggplot(aes(x,w, col = lambda)) + 
+  geom_line() + facet_wrap(~mb) + 
+  geom_jitter(alpha = 0.5, size = 2) + 
+  theme_bw() + 
+  theme(plot.title.position = 'plot') +
+  labs(title = 'Obciążenie, MSE i wariancja estymatora wartości P(X = x) dla wybranych wartości parametru lambda', x = '', y = '') 
+```
+
+1. Wariancja jest niezależnie od $\lambda$ praktycznie zerowa.
+2. Obciążenie i bezwzględna wartość średniego błędu kwadratowego rosną wraz ze wzrostem $\lambda$, ale nie różnią się znacząco dla różnych wartości $x$. Przeprowadziłam dodatkowe eksperymenty i sprawdziłam jak wygląda zależność obciążenia i MSE od $\lambda$.
+
+```{r echo=FALSE}
+zad2.results <- zad2.results %>% rbind(zadanie2(3)) %>% rbind(zadanie2(3)) %>% rbind(zadanie2(10)) %>% rbind(zadanie2(7)) %>% rbind(zadanie2(12)) %>% rbind(zadanie2(15)) %>% rbind(zadanie2(20)) %>% rbind(zadanie2(25))
+
+zad2.results[-6] %>% 
+  mutate(lambda = factor(lambda)) %>% 
+  gather(key = 'mb', value = 'w', MSE:bias) %>% 
+  ggplot(aes(x = lambda,y = w)) + 
+  geom_point(size = 2, col = 'tomato') +
+  theme_bw() + 
+  theme(plot.title.position = 'plot') +
+  labs(x = '', y = '', title = 'Wykres zależności obciążenia i MSE od lambda') +
+  facet_wrap(~mb)
+```
+
+#### Zadanie 4
+Gdy $\beta = 1$, to: funkcja masy prawdopodobieństwa jest postaci $P(x|\theta) = \theta x^{\theta - 1}$, informacja Fishera jest funkcją parametru $\theta$: $I(\theta) = \frac{1}{\theta^2}$, a estymator największej wiarogodności $\theta$ można wyrazić zwartym wzorem: $\hat{\theta} = \frac{-n}{\sum{ln(x_i)}}$. Analogicznie do poprzednich zadań $\hat{I(\theta)} = I(\hat{\theta})$.
+```{r echo=FALSE}
+mle_beta1 <- function(X){
+  n = length(X)
+  return(-n/sum(log(X)))
+}
+
+fisher <- function(theta){return(1/theta^2)}
+```
+
+W pierwszej cześci zadania estymujemy informację Fishera dla wartości $\theta$ uzyskanych dla 10000 różnych prób - na wykresie widać, że estymatory przyjmują wartości zbliżone do takich, jakich możnaby się spodziewać, tzn. że ich średnie wartości są odwrotnie proporcjonalne do $\lambda^2$. Ponadto, większe wartości parametru skutkują większą wariancją ENW informacji.
+
+```{r echo=FALSE}
+zadanie4_1 <- function(th, n = 50, iter = 10000, seed = 1){
+  set.seed(seed)
+  X <- numeric(0) # tu będą dołączane wyniki każdego z eksperymentów, czyli estymowane wartości Informacji Fishera
+  for (i in 1:iter){
+    sample <- rbeta(n, th, 1)
+    mleX <- mle_beta1(sample)
+    X[i] <- fisher(mleX)
+  results <- data.frame(n = n,
+                        theta = th,
+                        MSE = do.call(function(X){mean((X-fisher(th))^2)}, list(X)), 
+                        bias = do.call(function(X){mean(X-fisher(th))}, list(X)),
+                        var = do.call(var, list(X)),
+                        mean_I = mean(X),
+                        real_I = fisher(th))
+  }
+  # w wyniku zwracam podsumowanie (results) oraz wektor obliczonych informacji Fishera, żeby rysować z niego boxplota
+  return(list(results, X))
+}
+```
+
+```{r echo=FALSE}
+z4_1_05 <- zadanie4_1(0.5)
+z4_1_1 <- zadanie4_1(1)
+z4_1_2 <- zadanie4_1(2)
+z4_1_5 <- zadanie4_1(5)
+zad4_1.results <- rbind(z4_1_05[[1]], z4_1_1[[1]], z4_1_2[[1]], z4_1_5[[1]])
+```
+
+```{r echo=FALSE}
+data.frame(theta = factor(rep(c(0.5, 1, 2, 5), each = 10000)), fisher = c(z4_1_05[[2]], z4_1_1[[2]], z4_1_2[[2]], z4_1_5[[2]])) %>% 
+  ggplot(aes(x = theta, y = fisher, group = theta))+ 
+  geom_boxplot() + 
+  labs(x = 'theta', y = '', title = 'Jakie wartości przyjmuje ENW informacji Fishera',
+         subtitle = 'Wykresy pudełkowe dla wybranych wartości parametru') +
+  theme_bw() +
+  theme(plot.title.position = 'plot')
+```
+
+W dalszej części za zapamiętaną wartość estymatora $\hat{I(\theta)}$ przyjmiemy średnią arytmetyczną wyników - takie oszacowanie powinno mieć tym mniejsze znaczenie, im większa będzie wartość $\theta$ ze względu na mniejszy rozrzut estymatora. Uwagi : 
+
+1. prezentowane wyniki są obliczane dla innych prób losowych niż użyte wcześniej. 
+2. krzywa normalna naniesiona na histogramy rysowana jest z użyciem średniej i odchylenia standardowego liczonych dla wszystkich wartości $Y$ (tzn. $\theta = 0.5, 1, 2, 5$). Nie robi to dużej różnicy, gdyż indywidualne wyniki są pbardzo podobne.
+
+```{r echo=FALSE}
+zadanie4_2 <- function(th, n = 50, iter = 10000, seed = 38){
+  # def. zmienna Y
+  Y <- function(n, th, th_est, mean_I){
+    return((th_est-th)*sqrt(n*mean_I))
+  }
+  # z wyników poprzedniego zadania wybiorę wartość średniej informacji fishera
+  mean_I <- zad4_1.results %>% filter(n == n & theta == th) %>% pull(mean_I)
+  # losowanie próby
+  set.seed(seed)
+  X <- numeric(0) # tu będą dołączane wyniki każdego z eksperymentów, wartości Y
+  for (i in 1:iter){
+    sample <- rbeta(n, th, 1)
+    mleX <- mle_beta1(sample)
+    X[i] <- Y(n, th, mleX, mean_I)
+  }
+  return(X)
+}
+
+Y50_05 <- zadanie4_2(0.5)
+Y50_1 <- zadanie4_2(1)
+Y50_2 <- zadanie4_2(2)
+Y50_5 <- zadanie4_2(5)
+
+# tworzę dataframe ze wszystkimi wektorami Y do wykonania histogramów
+Y.dtf <- data.frame(th = factor(rep(c(0.5, 1, 2, 5), each = 10000)),
+                    n = factor(rep.int(50, 40000)),
+                    y = c(Y50_05, Y50_1, Y50_2, Y50_5))
+
+# obl. średnich i sd odpowiednich grup
+Y.summary <-
+  Y.dtf %>%
+  group_by(th) %>%
+  summarize(mean = mean(y), sd = sd(y))
+knitr::kable(Y.summary, caption = 'Porównanie średniej i wariancji Y dla różnych wartości parametru')
+```
+```{r echo=FALSE}
+ggplot(Y.dtf) +
+  geom_histogram(aes(x = y, y = ..density..), color = 'black', fill = 'grey') +
+  labs(x = '', y = '', title = 'Histogramy gęstości uzyskanych wartości Y dla różnych wartości theta; n = 50') +
+  theme_bw() +
+  theme(plot.title.position = 'plot') +
+  stat_function(fun = dnorm, col = 'navy', args = list(mean = mean(Y.dtf$y), sd = sd(Y.dtf$y))) +
+  facet_wrap(~th)
+```
+
+```{r echo=FALSE}
+ggplot(Y.dtf, aes(sample = y)) + geom_qq() + stat_qq_line() + facet_wrap(~th) +
+  theme_bw() +
+  theme(plot.title.position = 'plot') +
+  labs(x = '', y = '', title = 'Wykresy kwanntylowo-kwantylowe wielkości Y dla różnych theta',
+       subtitle = 'Czy rozkład jest normalny?')
+```
+
+Wygląd wykresów pozwala stwierdzić, że rozkład wielkości $Y$ jest bardzo bliski rozkładowi normalnemu i lekko skośny względem niego.
+
+#### Zadanie 5
+```{r echo=FALSE}
+z5 <- function(s, th, n = 50, iter = 10000, show_theta = FALSE, seed = 1){
+  # ust. ziarno generatora
+  set.seed(seed)
+  # utworzenie wektorów wag do definicji theta3 i theta4
+  an <- 0:n/n
+  w1 <- rnorm(n) %>% (function(v){v/sum(v)}) 
+  w2 <- dnorm(qnorm(an[-n])) - dnorm(qnorm(an[-1]))
+  # utworzenie dataframe do dołączania wyników poszczególnych eksperymentów
+  theta.dtf <- data.frame(th1 = numeric(0), 
+                          th2 = numeric(0),
+                          th3 = numeric(0),
+                          th4 = numeric(0)) 
+  # powtórzenie eksperymentu [iter] razy
+  for (i in 1:iter){
+    # losowanie próby z rozkładu normalnego
+    X <- rlaplace(n, th, s)
+    # tworzenie wektora wartości theta
+    theta <- c(th1 = mean(X),
+               th2 = median(X),
+               th3 = do.call(function(x){w1%*%x}, list(X)),
+               th4 = do.call(function(x){w2%*%sort(x)}, list(X)))
+    # dołączenie nowych wartości theta do macierzy z wartościami theta iter x 4
+    theta.dtf[i, 1:4] <- theta
+  }
+  # możemy w tym momencie sprawdzić jak wygląda theta.dtf ([iter] x 4)
+  if (show_theta){print(head(theta.dtf, 4))}
+  # def. odpowiednie funkcje
+  MSE <- function(x){mean((x-th)^2)}
+  bias <- function(x){mean(x-th)}
+  # zwracamy podsumowanie jako wynik funkcji zadanie5
+  data.frame(MSE = sapply(theta.dtf, MSE),
+             bias = sapply(theta.dtf, bias),
+             var = sapply(theta.dtf, var)) %>% return()
+}
+
+z5.50_1_1 <- z5(1,1)
+z5.50_1_4 <- z5(1,4)
+z5_50_2_1 <- z5(2,1)
+knitr::kable(z5.50_1_1, caption = 'Wyniki zadania 5c')
+```
+
+Przypadku wszystkich testowanych wartości parametrów najlepszym estymatorem okazał się $\theta_2$, czyli mediana. Nie ma w tym nic dziwnego - poprzednio była nim średnia, która jest ENW parametru dla rozkładu normalnego, a mediana jest ENW parametru dla rozkładu Laplace'a.
+
+#### Zadanie 6.1
+```{r echo=FALSE}
+for (p in c(0:100/100)){
+  zad1.results[nrow(zad1.results)+1, 1:ncol(zad1.results)] <- zadanie1(p, n = 20, seed = 108)
+}
+for (p in c(0:100/100)){
+  zad1.results[nrow(zad1.results)+1, 1:ncol(zad1.results)] <- zadanie1(p, n = 100, seed = 108)
+}
+for (p in c(0:100/100)){
+  zad1.results[nrow(zad1.results)+1, 1:ncol(zad1.results)] <- zadanie1(p, n = 1000, seed = 108)
+}
+```
+Po wykonaniu eksperymentu dla $n = 20$ i $n = 100$ okazało się, że rozmiar próby nie ma wpływu na kształt wykresu przedstawionego w zadaniu 1. Dla jeszcze mniejszych prób można zaobserwować różnice, co można wyjaśnić tym, że $n = 20$ często przyjmuje się za minimalną do uzyskania zgodnych z teorią wyników liczebność próby.
+
+#### Zadanie 6.2
+Zmiana liczebności próby nie wpływa znacząco na zależności wariancji, średniego błędu kwadratowego i obciążenia od parametru, natomiast ich bezwzględne wartości maleją wraz ze wzrotem $n$.
+```{r echo=FALSE}
+zad2.results <- rbind(zad2.results,
+                      zadanie2(0.5, 20), zadanie2(0.5, 100),
+                      zadanie2(1, 20), zadanie2(1, 100),
+                      zadanie2(2, 20), zadanie2(2, 100),
+                      zadanie2(5, 20), zadanie2(5, 100))
+```
+
+#### Zadanie 6.4
+Eksperymenty wykazały, że dla większej liczebności próby punkty na wykresie kwantylowo-kwantylowym leżą bliżej prostej, co oznacza że rozkład jest bardziej zbliżony do normalnego. Można to uzasadnić tym, że $Y$ dąży w rozkładzie do rozkładu normalnego.
+
+#### Zadanie 6.5
+Wyniki dla $n = 100$ są zbliżone do wyników dla $n = 50$, z trochę mniejszymi wartościami błędów dla sensownych estymatorów. W przypadku $n = 20$ widać większą losowość - znów ma to związek ze zbyt małą do uzyskania zgodnych z teorią liczebnością.
+
+

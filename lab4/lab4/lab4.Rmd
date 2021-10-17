@@ -1,0 +1,332 @@
+---
+title: "Statystyka - Laboratorium 4"
+author: "Martyna Konopacka"
+output: pdf_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(fig.width = 10, fig.height = 5) 
+```
+
+## Wprowadzenie i cele
+Poniższe sprawozdanie jest kontynuacją sprawozdania z listy 3 - celem jest skonfrontowanie teoretycznych przedziałów ufności z wyznaczonymi eksperymentalnie, ale tym razem będą one liczone dla różnicy dwóch średnich i ilorazu wariancji, przy różnych założeniach o drugim parametrze rozkładu. Przedziały zostaną wyznaczone w oparciu o Centralne Twierdzenie Graniczne oraz własności rozkładów Fishera-Snedecora i chi-kwadrat. Testowane będą próby o liczebności 20, 50, 100 i dodatkowo 1000.
+
+## Zadanie 1
+Niech $X_1, X_2$ są próbami rozmiarów $n_1, n_2$ o znanych wariancjach $\sigma_1^2, \sigma_2^2$, $\theta = \mu_1 - \mu_2$ i $\bar\theta = \bar{X_1} - \bar{X_2}$. Na mocy CTG $\bar{X_i} \sim N(\mu_i, \frac{\sigma_i^2}{n_i})$ dla $i = 1,2$, zatem $\bar\theta \sim N(\theta, \frac{\sigma_1^2}{n_1} + \frac{\sigma_2^2}{n_2})$. Na potrzeby raportu możemy założyć, że $n_1 = n_2$. Przekształcając podobnie jak na poprzedniej liście wyznaczymy przedział ufności postaci 
+$$1 - \alpha = P(\bar\theta - z \frac{\sqrt{\sigma_1^2 + \sigma_2^2}}{\sqrt{n}} \leq \theta \leq \bar\theta + z \frac{\sqrt{\sigma_1^2 + \sigma_2^2}}{\sqrt{n}})$$
+gdzie $z$ jest kwantylem na poziomie $p = 1 - \frac{\alpha}{2}$ z rozkładu standardowego. (Przykładowo, gdy poziom ufności $1- \alpha$ wynosi 0.95, to bierzemy kwantyl $p = 1 - \frac{0.05}{2} = 1 - 0.025 = 0.975$, czyli liczbę $1.96$).
+
+```{r}
+library(tidyverse)
+library(stats)
+
+# helper
+printf <- function(str, ...){
+  output <- sprintf(str, ...)
+  cat(output)
+}
+
+# definicje przedziałów ufności dla poszczególnych zadań; zwraca wektor c(low, high) wartości brzegowych przedziału
+i2 <- function(X1, X2, s1, s2, lvl = 0.95){
+  # lenght(X1) == lenght(X2)
+  n = length(X1)
+  alpha = 1 - lvl
+  z = qnorm(1 - alpha/2) # 1.96
+  th = mean(X1) - mean(X2)
+  sd = sqrt(s1^2 + s2^2)
+  low = th - sd / sqrt(n) * z
+  high =  th + sd / sqrt(n) * z
+  return(c(low, high))
+}
+```
+```{r}
+i4 <- function(X1, X2, lvl = 0.95){
+  # lenght(X1) == lenght(X2)
+  n = length(X1)
+  alpha = 1 - lvl
+  z = qt(1 - alpha/2, df = n-1) # n-1 degrees of freedom
+  th = mean(X1) - mean(X2)
+  sd = sqrt(var(X1 - X2))
+  low = th - sd / sqrt(n) * z
+  high =  th + sd / sqrt(n) * z
+  return(c(low, high))
+}
+
+i6 <- function(X1, X2, lvl = 0.95){
+  # lenght(X1) == lenght(X2)
+  n = length(X1)
+  alpha = 1 - lvl
+  z = qt(1 - alpha/2, df = n-1) # n-1 degrees of freedom
+  th = mean(X1) - mean(X2)
+  sd = sqrt(var(X1)) + sqrt(var(X2))
+  low = th - sd / sqrt(n) * z
+  high =  th + sd / sqrt(n) * z
+  return(c(low, high))
+}
+```
+
+```{r}
+i8 <- function(X1, X2, m1, m2, lvl = 0.95){
+  alpha = 1 - lvl
+  n1 = length(X1)
+  n2 = length(X2)
+  # kwantyle rozkładu F(n2,n1)
+  f1 = qf(alpha/2, n2, n1)
+  f2 = qf(1 - alpha/2, n2, n1)
+  # wariancje próbkowe ze znaną średnią
+  var1 = sum((X1 - m1)^2)/n1
+  var2 = sum((X2 - m2)^2)/n2
+  # brzegi przedziału
+  low = f1*var1/var2
+  high = f2*var1/var2
+  return(c(low, high))
+}
+
+i10 <- function(X1, X2, lvl = 0.95){
+  alpha = 1 - lvl
+  n1 = length(X1)
+  n2 = length(X2)
+  # kwantyle rozkładu F(n2-1,n1-1)
+  f1 = qf(alpha/2, n2-1, n1-1)
+  f2 = qf(1 - alpha/2, n2-1, n1-1)
+  # wariancje próbkowe z nieznaną średnią
+  var1 = var(X1)
+  var2 = var(X2)
+  # brzegi przedziału
+  low = f1*var1/var2
+  high = f2*var1/var2
+  return(c(low, high))
+}
+```
+
+```{r}
+# zwraca wyniki eksperymentu dla dowolnego zadania
+f <- function(m1, s1, m2, s2, rvs = rnorm, n = 1000, lvl = 0.95, iter = 1000, seed = 1, zad = 8, debug = FALSE){ 
+   set.seed(seed)
+   inside = 0
+   # zapamiętanie parametrów przed przeliczeniem ich na w. oczekiwaną i sd --------
+   m1o = m1
+   m2o = m2
+   s1o = s1
+   s2o = s2
+   
+    # przeliczanie parametrów na wart. oczekiwaną i odchylenie -------------
+   name = as.character(substitute(rvs))
+   if (debug == TRUE){printf('name: %s', name)}
+   if (name == 'rlogis'){
+     s1 <- s1 * pi/sqrt(3)
+     s2 <- s2 * pi/sqrt(3)
+   }
+ 
+   if (debug == TRUE){printf('m1: %s, s1: %s, m2: %s, s2: %s', m1, s1, m2, s2)}
+   
+   # iteracje ----------------------------
+   for(i in 1:iter){
+       X1 <- rvs(n, m1o, s1o) # UWAGA rlogis bierze jako argument loc & scale, a nie expval & sd
+       X2 <- rvs(n, m2o, s2o)
+       if (debug == TRUE){printf('X1 mean: %s, X2 mean: %s \n', mean(X1), mean(X2))} 
+       
+     # MEANS DIFFERENCE --------
+     if (zad %in% c(2,4,6)){
+       # co estymujemy?
+       th = m1 - m2
+       if (zad == 2){interv = i2(X1, X2, s1, s2, lvl)}
+       if (zad == 4){interv = i4(X1, X2, lvl)}
+       if (zad == 6){interv = i6(X1, X2, lvl)}
+     }
+    
+     # VARIANCE RATIO ------------
+     if (zad %in% c(8,10)){
+       # co estymujemy?
+       th = (s1/s2)^2
+       if (debug == TRUE){printf('vr: %s \n', th)}
+       if (zad == 8){interv = i8(X1, X2, m1, m2, lvl)} # znana średnia
+       if (zad == 10){interv = i10(X1, X2, lvl)} # nieznana średnia
+     }
+       
+     # czy prawdziwy parametr leży w szacowanym na podstawie próby przedziale?
+     increment = (th >= interv[1] & th <= interv[2])
+     if (debug == TRUE){printf('interval: (%s, %s) %s\n', interv[1], interv[2], increment)}
+     if(increment){inside = inside + 1}
+    
+       } # end iterations loop
+   
+   return(data.frame(zad = factor(zad),
+                    rozklad = factor(name),
+                     n = n,
+                     m1 = factor(m1o),
+                     m2 = factor(m2o),
+                     s1 = factor(s1o),
+                     s2 = factor(s2o),
+                     wynik = inside/iter,
+                     iter = iter))
+}
+
+# tworzenie wyników ------------
+# zad8.results <- rbind(zad8.results, f(0,1,0,1), f(0,1,1,1), f(0,1,0,2),f(0,1,1,2),
+#                       f(0,1,0,1,rlogis), f(0,1,1,1,rlogis),f(0,1,0,2,rlogis),f(0,1,1,2,rlogis),
+#                       f(0,1,0,1,rcauchy), f(0,1,1,1,rcauchy),f(0,1,0,2,rcauchy),f(0,1,1,2,rcauchy))
+# wyniki zapisane i załadowane później
+```
+
+## Zadanie 2
+```{r}
+load('results/zad2.results')
+zad2.results %>% 
+  filter(rozklad != 'rcauchy') %>%
+  mutate(params = factor(paste(m1, s1, m2, s2, sep = ', '))) %>%
+  group_by(n) %>%
+  ggplot(aes(x = n, y = wynik, fill = params)) +
+  geom_bar(stat = 'identity', position = position_dodge()) +
+  labs(subtitle = 'Znane wariancje; wyniki dla rozkladu normalnego i logistycznego', title = 'Procent roznic srednich pokrytych przez przedzial ufnosci na poziomie 95%', x = 'n', y = '', fill = '(m1, s1, m2, s2)') +
+  scale_fill_brewer(palette="Set1") +
+  geom_hline(yintercept = 0.95, color = 'navy') +
+  coord_cartesian(ylim = c(0.94,0.96)) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  facet_wrap(vars(rozklad))
+```
+
+Eksperymenty przeprowadzone dla tych dwóch rozkładów dają dobre wyniki w okolicy 95% - potwierdza to skuteczność przyjętego sposobu wyznaczania przedziału ufności. Wszystkie odsetki mieszczą się w przedziale 95%+-1%. W tym przypadku nawet mała liczebność próby nie psuje wyników, mimo że możnaby się tego spodziewać w przypadku rozkładu logistycznego ze względu na to, że wyznaczając przedział ufności korzystamy z tego, że średnie dowolnych rozkładów o znanej wariancji i wartości oczekiwanej asymptotycznie dążą do rozkładu normalnego (czyli dla małej próby mogłoby tak nie być).
+
+Wyniki dla rozkładu Cauchy'ego ponownie pokazują, że nie możemy wyznaczać dla niego przedziału ufności w przyjęty sposób. Powodem jest niespełnione założenie Centralnego Twierdzenia Granicznego o istnieniu wariancji i wartości oczekiwanej. Można zauważyć, że odsetek pokrytych parametrów spada wraz ze wzrostem $n$, co potwierdziły dodatkowe doświadczenia - dla większych $n$ był on coraz bliższy 0.
+
+```{r}
+zad2.results %>% 
+  filter(rozklad == 'rcauchy') %>%
+  mutate(params = factor(paste(m1, s1, m2, s2, sep = ', '))) %>%
+  group_by(n) %>%
+  ggplot(aes(x = n, y = wynik, fill = params)) +
+  geom_bar(stat = 'identity', position = position_dodge()) +
+  labs(subtitle = 'Znane wariancje; wyniki dla rozkladu Cauchy\'ego', title = 'Procent roznic srednich pokrytych przez przedzial ufnosci na poziomie 95%', x = 'n', y = '', fill = '(m1, s1, m2, s2)') +
+  scale_fill_brewer(palette="Set1")+
+  coord_cartesian(ylim = c(0,0.2)) +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  theme(legend.position = 'bottom')
+```
+
+## Zadanie 3 + Zadanie 5
+Na potrzeby zadania zakładamy $n_1 = n_2 = n$. Jeśli nie znamy wariancji populacji z których pochodzą próby, to: 
+(1) zamiast kwantyli rozkładu normalnego użyjemy kwantyli rozkładu studenta z $n-1$ stopniami swobody; (2) zamiast $\sigma^2$ użyjemy $S^2$ - wariancji próbkowej. Przy założeniu równych wariancji można obliczyć ją analogicznie do zadania z poprzedniej listy ze wzoru $S^2 = \frac{1}{n-1}\sum{(\theta - \bar\theta)^2}$. Tym sposobem uzyskamy przedział ufności postaci:
+$$1 - \alpha = P(\bar\theta - t \frac{S}{\sqrt{n}} \leq \theta \leq \bar\theta + t \frac{S}{\sqrt{n}})$$
+
+gdzie $t$ jest kwantylem na poziomie $1 - \alpha/2$ rozkładu Studenta z $n-1$ stopniami swobody. **W zadaniu 5 zamiast wyliczonej wprost wariancji próbkowej użyjemy sumy wariancji próbkowych $S_1^2 + S_2^2$.**
+
+## Zadanie 4
+Uwaga do implementacji: funkcja `var` w R oblicza wariancję z mianownikiem $n-1$, czyli taką jak chcemy.
+
+```{r}
+load('results/zad4.results')
+zad4.results %>%
+  mutate(n = factor(n), 
+         params = factor(paste(m1, s1, m2, s2, sep = ', '))) %>%
+  group_by(n) %>%
+  ggplot(aes(x = n, y = wynik, fill = params)) +
+  geom_bar(stat = 'identity', position = position_dodge()) +
+  labs(subtitle = 'Nieznane, rowne wariancje', title = 'Procent roznic srednich pokrytych przez przedzial ufnosci na poziomie 95%', x = 'n', y = '', fill = '(m1, s1, m2, s2)') +
+  scale_fill_brewer(palette="Set1") +
+  geom_hline(yintercept = 0.95, color = 'navy') +
+  coord_cartesian(ylim = c(0.92,0.99)) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  facet_wrap(vars(rozklad))
+```
+
+Wyniki dla rozkładów normalnego i logistycznego ponownie są zadowalające. Dla $n=20$ w rozkładzie normalnym można zauważyć trochę niższy wynik, jednak błąd wciąż jest mały, a dodatkowe eksperymenty przeprowadzone z innym argumentem generatora liczb pseudolosowych dały wynik bliższy 95%. W przypadku rozkładu Cauchy'ego szerokość przedziału została niedoszacowana, prawdopodobnie ze względu na ciężkie ogony tego rozkładu.
+
+## Zadanie 6
+```{r}
+load('results/zad6.results')
+zad6.results %>%
+  mutate(n = factor(n), 
+         params = factor(paste(m1, s1, m2, s2, sep = ', '))) %>%
+  group_by(n) %>%
+  ggplot(aes(x = n, y = wynik, fill = params)) +
+  geom_bar(stat = 'identity', position = position_dodge()) +
+  labs(title = 'Procent roznic srednich pokrytych przez przedzial ufnosci na poziomie 95%', subtitle = 'Nieznane, rozne wariancje', x = 'n', y = '', fill = '(m1, s1, m2, s2)') +
+  scale_fill_brewer(palette="Set1") +
+  geom_hline(yintercept = 0.95, color = 'navy') +
+  coord_cartesian(ylim = c(0.93,1)) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  facet_wrap(vars(rozklad))
+```
+
+Intuicyjnie jeśli zamiast jednej nieznanej wariancji zakładamy dwie różne nieznane, to informacji jest w pewnym sensie mniej więc można spodziewać się gorszego oszacowania. Przy takim sposobie obliczania przedziałów wyniki eksperymentu są dla wszystkich przedziałów wyższe niż 95%. Prawdopodobnie jest tak, bo obliczając osobno dwie wariancje próbkowe, dwukrotnie popełniamy błąd oszacowania, przez co licznik wyrażenia z $S$ jest większy i daje szerszy przedział ufności. 
+
+## Zadanie 7 + Zadanie 9
+W kolejnych zadaniach szacujemy przedział ufności dla ilorazu wariancji  $\theta = \frac{\sigma_1^2}{\sigma_2^2}$.
+
+Niech $U_i = \frac{n_i S_1^2}{\sigma_i^2}$ dla $i = 1,2$. Wtedy $U_i \sim \chi_{n_i}^2$, co wynika bezpośrednio z przekształcenia wzoru na wariancję próbkową. Z własności rozkładu Fischera-Snedecora, jeśli $U_1 \sim \chi_{n_1}^2$ i $U_2 \sim \chi_{n_2}^2$, to $Y = \frac{U_2 n_1}{U_1 n_2} \sim F_{n_2, n_1}$. 
+Rozpisując $Y$ i skracając otrzymamy $\frac{S_2^2}{S_1^2}\theta \sim F_{n_2, n_1}$, zatem przedział ufności będzie postaci:
+$$1 - \alpha = P(f_1 \frac{S_1^2}{S_2^2} \leq \theta \leq f_2 \frac{S_1^2}{S_2^2})$$
+gdzie $f_1, f_2$ są kwantylami rozkładu $F_{n_2,n_1}$ na poziomach $\frac{\alpha}{2}$ i $1 - \frac{\alpha}{2}$. Uwagi: (1) rozkład nie musi być symetryczny i $f_1 \neq -f_2$ (2) kolejność stopni swobody
+
+Zadania 7 i 9 różnią się sposobem liczenia $S^2$. W przypadku znanej średniej we wzorze na wariancję odejmujemy odpowiednio $\mu_1, \mu_2$ i dzielimy przez $n$, a w przypadku nieznanej odejmujemy $\bar{X_1}, \bar{X_2}$ i dzielimy przez $n-1$ zmieniając również liczby stopni swobody.
+
+## Zadanie 8
+```{r}
+load('results/zad8.results')
+zad8.results %>% 
+  mutate(n = factor(n), params = factor(paste(m1, s1, m2, s2, sep = ', '))) %>%
+  group_by(n) %>%
+  ggplot(aes(x = n, y = wynik, fill = params)) +
+  geom_bar(stat = 'identity', position = position_dodge()) +
+  labs(subtitle = 'Znane srednie', title = 'Procent ilorazow wariancji pokrytych przez przedzial ufnosci na poziomie 95%', x = 'n', y = '', fill = '(m1, s1, m2, s2)') +
+  scale_fill_brewer(palette="Set1") +
+  geom_hline(yintercept = 0.95, color = 'navy') +
+  # coord_cartesian(ylim = c(0.94,0.96)) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  facet_wrap(vars(rozklad))
+```
+
+Jak widać, metoda działa prawidłowo tylko dla rozkładu normalnego - wyniki są bardzo podobne jak przy szacowaniu różnicy średnich. Wyznaczając przedział powołujemy się na własności rozkładu Fishera-Snedecora, które są prawdziwe tylko przy założeniu, że obserwacje pochodzą z rozkładu normalnego (nie ma tu założeń związanych z asymptotyczną normalnością jak w CTG) - stąd nieprawidłowe wyniki dla pozostałych rozkładów. Dodatkowo, ponownie widać że oszacowanie dla rozkładu Cauchy'ego jest coraz gorsze wraz ze zwiększaniem $n$ co intuicyjnie można tłumaczyć tym, że takie oszacowanie jest po prostu złe i im większą próbę weźmiemy, tym bardziej będzie to widoczne. Można jeszcze zobaczyć dokładniejsze wyniki dla rozkładu normalnego:
+
+```{r}
+load('results/zad8.results')
+zad8.results %>% 
+  filter(rozklad == 'rnorm') %>%
+  mutate(n = factor(n), params = factor(paste(m1, s1, m2, s2, sep = ', '))) %>%
+  group_by(n) %>%
+  ggplot(aes(x = n, y = wynik, fill = params)) +
+  geom_bar(stat = 'identity', position = position_dodge()) +
+  labs(subtitle = 'Znane srednie; rozklad normalny', title = 'Procent ilorazow wariancji pokrytych przez przedzial ufnosci na poziomie 95%', x = 'n', y = '', fill = '(m1, s1, m2, s2)') +
+  scale_fill_brewer(palette="Set1") +
+  geom_hline(yintercept = 0.95, color = 'navy') +
+  coord_cartesian(ylim = c(0.90,0.96)) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  facet_wrap(vars(rozklad))
+```
+
+## Zadanie 10
+```{r}
+load('results/zad10.results')
+zad10.results %>% 
+  mutate(n = factor(n), params = factor(paste(m1, s1, m2, s2, sep = ', '))) %>%
+  group_by(n) %>%
+  ggplot(aes(x = n, y = wynik, fill = params)) +
+  geom_bar(stat = 'identity', position = position_dodge()) +
+  labs(subtitle = 'Nieznane srednie', title = 'Procent ilorazow wariancji pokrytych przez przedzial ufnosci na poziomie 95%', x = 'n', y = '', fill = '(m1, s1, m2, s2)') +
+  scale_fill_brewer(palette="Set1") +
+  geom_hline(yintercept = 0.95, color = 'navy') +
+  # coord_cartesian(ylim = c(0.94,0.96)) +
+  theme_bw() +
+  theme(legend.position = 'bottom') +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  facet_wrap(vars(rozklad))
+  
+```
+
+Nie widać znaczących różnic w porównaniu z poprzednim zadaniem.
+
+## Podsumowanie
+Ponownie okazało się, jak ważne jest spełnienie teoretycznych założeń przy konstrukcji przedziałów ufności. Najgorzej wypadł rozkład Cauchy'ego który nie ma zdefiniowanej wartości oczekiwanej i wariancji, więc badanie go w zasadzie z góry nie miało sensu, co potwierdziły eksperymenty.

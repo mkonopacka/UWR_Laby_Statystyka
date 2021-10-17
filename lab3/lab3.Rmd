@@ -1,0 +1,289 @@
+---
+title: "Lista 3"
+author: "Martyna Konopacka"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Cel
+Celem tego sprawozdania jest skonfrontowanie teoretycznych przedziałów ufności średniej, wariancji i proporcji dla nieznanych parametrów z rozkładów: normalnego, Cauchy'ego, logistycznego, wykładniczego i chi-kwadrat z wynikami eksperymentów. W zadaniach rozważane są od razu różne liczebności próby.
+
+## Wprowadzenie - estymacja przedziałowa
+Załóżmy, że zmienna losowa $X$ ma rozkład w populacji z nieznanym parametrem $\theta$. Z populacji wybieramy próbę losową  $X_1,X_2,\dots ,X_n$. *Przedziałem ufności* o współczynniku ufności $1-\alpha$ nazwiemy taki przedział $(\theta_1, \theta_2)$ który spełnia warunek:
+$P(\theta_1 < \theta < \theta_2) = 1 - \alpha$, gdzie $\theta_1$ i $\theta_2$ są funkcjami wyznaczonymi na podstawie próby losowej. Współczynnik ufności wyraża wtedy prawdopodobieństwo, że rzeczywista wartość $\theta$ znajduje się w przedziale $\theta_1,\theta_2$.
+
+Zadanie 1 pokazuje procedurę wyznaczania przedziału o zadanym poziomie ufności na przykładzie estymacji średniej w modelu normalnym o znanej wariancji, natomiast w zadaniu 3 przejdziemy do modelu o (bardziej realistyczne) nieznanej wariancji. Estymując średnią oprzemy się na poniższym twierdzeniu:
+
+**Centralne Twierdzenie Graniczne (CTG)**
+
+Załóżmy, że $X_1, ..., X_n$ są niezależnymi zmiennymi losowymi o tym samym rozkładzie, wartości oczekiwanej $\mu$ i wariancji $\sigma^2$. Wtedy zmienna $\bar{X} = \frac{1}{n}\sum{X_i}$ zbiega według rozkładu do rozkładu normalnego $N(\mu, \frac{\sigma^2}{n})$ W praktyce zazwyczaj przyjmuje się, że jeśli $n \geq 30$ to $X \sim N(\mu, \frac{\sigma^2}{n})$.
+
+**Uwaga: twierdzenie ma zastosowanie tylko dla rozkładów o znanej wartości oczekiwanej i wariancji! Zobaczymy, że szacowanie przedziałów ufności nie zadziała dla rozkładów niespełniających tego warunku na przykładzie rozkładu Cauchy'ego.**
+
+## Zadanie 1
+Niech $X_1, X_2, ..., X_n$ będzie próbą losową z rozkładu o nieznanej wartości oczekiwanej $\mu$ i znanej wariancji $\sigma^2$. Na mocy CTG średnia próbkowa $\bar{X}$ ma rozkład $N(\mu, \frac{\sigma^2}{n})$. Wyrazimy standardową zmienną normalną (której przedziały ufności są nam znane) $Z\sim N(1,0)$ jako $Z = \frac{\sqrt{n}}{\sigma}(\bar{X}-\mu)$ i za pomocą przekształceń znajdziemy przedziały ufności dla $\mu$. Niech $\phi^{-1}(\frac{\alpha}{2}) = \mu_1$ i $\phi^{-1}(1 - \frac{\alpha}{2}) = \mu_2$, gdzie $\phi$ jest dystrybuntą rozkładu.
+
+$1 - \alpha = P(\mu_1 \leq Z \leq \mu_2)$
+
+$1 - \alpha = P( \mu_1 \leq \frac{\sqrt{n}}{\sigma}(\bar{X}-\mu) \leq \mu_2 )$
+
+$1 - \alpha = P( \frac{\sigma \mu_1}{\sqrt{n}} - \bar{X} \leq -\mu \leq \frac{\sigma \mu_2}{\sqrt{n}} - \bar{X})$
+
+$1 - \alpha = P(\bar{X} -\frac{\sigma}{\sqrt{n}}\mu_2 \leq \mu \leq \bar{X} -\frac{\sigma }{\sqrt{n}}\mu_1)$
+
+W ten sposób wyznaczyliśmy przedział ufności na poziomie ufności $1 - \alpha$ dla $\mu$. Uwaga: dla prób o różnej liczebności wspólny mianownik wyrażenia z sumą $\sigma_i^2$ zamienia się na $\frac{\sigma_i^2}{n_i}$ dla $n = 1,2$.
+
+## Zadanie 2
+Sprawdzimy doświadczalnie, jaki procent średnich próbkowych rzeczywiście mieści się w obliczonym jak w zadaniu 1 przedziale ufności, przy czym należy zwrócić uwagę że *jako wartości oczekiwanej i odchylenia standardowego nie użyjemy zawsze po prostu parametrów podanych w zadaniu, a odpowiednio* dla rozkładów:
+
+* normalnego: $\mu, \sigma$
+* logistycznego: $\mu, \frac{\sigma \pi}{\sqrt3}$
+* Cauchy'ego z uwagi na brak wartości oczekiwanej i wariancji: $\mu, \sigma$
+* wykładniczego: $\frac{1}{\lambda}, \frac{1}{\lambda}$
+* chi-kwadrat: $\nu, \sqrt{2\nu}$
+
+```{r include=FALSE}
+library(tidyverse)
+library(stats) # T-distribution
+
+  # zwraca wektor postaci c(low,high), gdzie low i high są wartościami brzegowymi przedziału ufności dla średniej na poziomie lvl dla próby X o liczebności n, pochodzącej z rozkładu o znanej wariancji var = sd^2
+  interval1 <- function(X, sd, lvl = 0.95){
+    n = length(X)
+    alpha = 1 - lvl
+    low = mean(X) - sd / sqrt(n) * qnorm(1 - alpha/2)
+    high =  mean(X) - sd / sqrt(n) * qnorm(alpha/2)
+    return(c(low, high))
+  }
+
+# zwraca wektor postaci c(low,high), gdzie low i high są wartościami brzegowymi przedziału ufności dla średniej na poziomie lvl dla próby X o liczebności n
+interval2 <- function(X, lvl = 0.95){
+  n = length(X)
+  alpha = 1-lvl
+  t = qt(1 - alpha/2, n-1) 
+  sd = sqrt(sum((X - mean(X))^2 / (n-1))) # unbiased sample standard deviation
+  low = mean(X) - sd/sqrt(n) * t
+  high = mean(X) + sd / sqrt(n) * t
+  return(c(low,high))
+}
+
+# zwraca wektor postaci c(low,high), gdzie low i high są wartościami brzegowymi przedziału ufności dla wariancji na poziomie lvl dla próby X, pochodzącej z rozkładu normalnego o znanej średniej m
+interval3 <- function(X, m, lvl = 0.95){
+  n = length(X)
+  alpha = 1 - lvl
+  S2 = sum((X - m)^2 / (n-1)) # unbiased variance estimator with known population mean
+  k1 = qchisq(1- alpha/2, n)
+  k2 = qchisq(alpha/2, n)
+  low = (n-1)*S2/k1
+  high =  (n-1)*S2/k2
+  return(c(low, high))
+}
+
+# zwraca wektor postaci c(low,high), gdzie low i high są wartościami brzegowymi przedziału ufności dla wariancji na poziomie lvl dla próby X, pochodzącej z rozkładu normalnego o nieznanej średniej w populacji
+interval4 <- function(X, lvl = 0.95){
+  n = length(X)
+  alpha = 1 - lvl
+  S2 = sum((X - mean(X))^2 / (n-1)) # unbiased variance estimator
+  k1 = qchisq(1- alpha/2, n-1)
+  k2 = qchisq(alpha/2, n-1)
+  low = (n-1)*S2/k1
+  high =  (n-1)*S2/k2
+  return(c(low, high))
+}
+
+# zwraca wektor postaci c(low,high), gdzie low i high są wartościami brzegowymi przedziału ufności dla proporcji na poziomie lvl dla próby X
+interval5 <- function(X, lvl = 0.95){
+  n = length(X)
+  M = mean(X>0)
+  print(paste('M',M))
+  alpha = 1 - lvl
+  z = qnorm(1 - alpha/2)
+  print(paste('z', z))
+  low = M - z*sqrt(M*(1-M)/n)
+  print(paste('pierwiastek:', z*sqrt(M*(1-M)/n)))
+  high =  M + z*sqrt(M*(1-M)/n)
+  return(c(low, high))
+}
+
+# zwraca wynik eksperymentu dla parametrów sigma -> p2 i mi -> p1 lub tylko p2, wtedy p2 może być  jakiekolwiek. Przez m ozn. wart. oczekiwaną a s odchylenie standardowe. Funkcja została uogólniona do innych zadań: pop_param decyduje czy znamy drugi parametr populacji, a mode co szacujemy
+zad2 <- function(p2, p1 = 0, n = 50, pdf = rnorm, lvl = 0.95, iter = 1000, seed = 1, pop_param = TRUE, mode = 'prop'){ 
+  set.seed(seed)
+  inside = 0
+  
+   # przeliczanie parametrów na wart. oczekiwaną i odchylenie
+  name = as.character(substitute(pdf))
+  if (name == 'rnorm'){
+    m = p1
+    sd = p2
+  }
+  else if (name == 'rlogis'){
+    m = p1
+    sd = p2 * pi/sqrt(3)
+  }
+  else if (name == 'rcauchy'){
+    m = p1
+    sd = p2
+  }
+  else if (name == 'rexp'){
+    m = 1/p2
+    sd = 1/p2
+  }
+  else if (name == 'rchisq'){
+    m = p2
+    sd = sqrt(2*p2)
+  }
+  
+  for(i in 1:iter){
+    # dla rozkladow jednoparametrowych trzeba zapewnić wywołanie funkcji z tylko 1 parametrem p2
+    if (name %in% c('rexp', 'rchisq')){
+      X <- do.call(pdf, list(n, p2))
+    }
+    else {
+      X <- do.call(pdf, list(n, p1, p2))
+      }
+
+    # wybór zadania (co szacujemy, czy znamy drugi parametr?)
+    if (mode == 'mean'){
+      if (pop_param == TRUE){
+      interv = interval1(X, sd, lvl)
+    }
+      else {
+        interv = interval2(X, lvl) 
+      }
+    
+      if(m >= interv[1] & m <= interv[2]){
+      inside = inside + 1
+    }
+    } # end mode mean
+    
+    else if (mode == 'var'){
+      if (pop_param == TRUE){
+      interv = interval3(X, m, lvl)
+    }
+      else {
+        interv = interval4(X, lvl) 
+      }
+    
+      if(sd^2 >= interv[1] & sd^2 <= interv[2]){
+      inside = inside + 1
+    }
+    } # end mode var
+    
+    else if (mode == 'prop'){
+      interv = interval5(X, lvl)
+      # obliczyć proporcję:
+      p = 0.5
+      if(p >= interv[1] & p <= interv[2]){
+      inside = inside + 1
+    }
+    } # end mode prop
+  }
+  return(data.frame(rozklad = name,
+                    est = mode,
+                    n = n,
+                    mi = p1,
+                    sigma = as.integer(p2),
+                    wynik = inside/iter,
+                    pop_param_known = pop_param))
+}
+```
+```{r eval=FALSE, include=FALSE}
+# UWAGA: powtórzyłam ten krok zmieniając domyślne n i pop_var (czy znana wariancja populacji) i w definicji funkcji, żeby za dużo nie pisać  i dopisuję zad2.results w rbindzie. Gotowe wyniki zapisałam w pliku i załaduję później, tak samo zad.4
+zad9.results <-
+  rbind(zad9.results,
+        zad2(1), zad2(2), zad2(3),
+        zad2(1, pdf = rlogis), zad2(2, pdf = rlogis), zad2(3, pdf = rlogis),
+        zad2(1, pdf = rcauchy), zad2(2, pdf = rcauchy), zad2(3, pdf = rcauchy))
+```
+
+```{r echo=FALSE}
+load(file = 'results/zad2.results')
+zad2.results %>% filter(n == 50) %>% knitr::kable()
+```
+
+* zgodnie z przewidywaniami w oczy rzuca się rozkład Cauchy'ego - odsetek średnich rzeczywiście mieszczących się w wyznaczanym przedziale ufności nieakceptowalnie różni się od teoretycznej wartości $0.95$. Oczywiście jest tak dlatego, że podstawą konstrukcji przedziału w tym zadaniu było Centralne Twierdzenie Graniczne, które ma zastosowanie tylko do rozkładów o znanej wariancji i wartości oczekiwanej. Pozostałe rozkłady dają prawidłowe odsetki blisko $0.95$ i świadczy to o tym, że twierdzenie rzeczywiście działa, a parametry zostały prawidłowo przeliczone
+
+* dla próby rozmiaru $100$ wyniki są bardzo zbliżone, a w miarę zwiększania liczebności zbliżają się coraz bardziej do teoretycznej wartości (przykładowo dla rozkładu normalnego i $n = 200$ wynikiem było już dokładnie $0.95$). Co ciekawe, nawet dla $n = 20$, które jest mniejsze niż przyjmowany często próg "działania twierdzeń" $n = 30$, nie widać dużej różnicy.
+Jedynie rozkład Cauchy'ego zwiększył odsetek w wyraźny sposób, ale jak już wiadomo jest on patologiczny.
+
+```{r echo=FALSE}
+zad2.results %>% filter(n == 20) %>% knitr::kable()
+```
+
+### Zadanie 3
+Niech $X_1, X_2, ..., X_n$ będzie próbą losową z rozkładu normalnego o nieznanej wariancji i parametrze $\mu$. Procedura wyznaczania przedziału ufności dla parametru $\mu$ będzie przebiegała podobnie do tej w zadaniu 1, z tą różnicą, że zamiast rozkładu normalnego tym razem estymator będzie miał rozkład studenta, a w roli wariancji wystąpi wariancja próbkowa.
+
+Przez $\bar{X}$ oznaczymy średnią próbkową, a przez $S^2$ wariancję próbkową obliczaną ze wzoru $S^2 = \frac{1}{n-1}\sum{(x_i-\bar{x})^2}$. Wiemy, że $T = \frac{\sqrt{n}(\bar{X}-\mu)}{S}$ ma rozkład studenta z $n - 1$ stopniami swobody. Niech $t_1, t_2$ oznaczają odpowiednio wartość odczytaną z tabeli rozkładu studenta dla $p = \frac{\alpha}{2}$ i $p = 1 - \frac{\alpha}{2}$ przy $n-1$ stopniach swobody. Wtedy:
+
+$1 - \alpha = P(t_1 \leq T \leq t_2)$
+
+$1 - \alpha = P(t_1 \leq \frac{\sqrt{n}(\bar{X}-\mu)}{S} \leq t_2)$
+
+$1 - \alpha = P(\bar{X} - \frac{S}{\sqrt{n}}t_2 \leq \mu \leq \bar{X} - \frac{S}{\sqrt{n}}t_1)$
+
+### Zadanie 4
+```{r echo=FALSE}
+load(file = 'results/zad4.results')
+zad4.results %>% filter(n == 50) %>% select(-c('pop_var','mi')) %>% distinct() %>% knitr::kable()
+```
+
+* tym razem szerokość przedziału dla rozkładu Cauchy'ego została przeszacowana.
+
+* dla pozostałych rozkładów wyniki nie są znacząco różne od wyników w przypadku znanej wariancji. Największą różnicę można zaobserwować dla rozkładu wykładniczego, najmniejszą dla normalnego.
+
+* dla innych liczebnośc próby wyniki ponownie są dosyć podobne. Dla niektórych rozkładów widać trochę większe różnice dla małego $n$ (wynika to ze sposobu szacowania wariancji)
+```{r echo=FALSE}
+zad4.results %>% filter(n == 20 & rozklad %in% c('rexp', 'rchisq')) %>% select(-c('pop_var','mi')) %>% distinct() %>% knitr::kable()
+```
+
+### Zadanie 5
+
+* Załóżmy, że $X_1, X_2, ... X_n$ to niezależne zmienne losowe z rozkładu $N(0,1)$. Wtedy suma ich kwadratów $Y = \sum{X_i^2} \sim \chi_{n}^2$, gdzie $\chi_{n-1}^2$ oznacza rozkład chi-kwadrat o $n$ stoponiach swobody. Jeśli $X \sim N(\mu, \sigma^2)$ to unormowana zmienna $K = \sum_{i=1}^n{(\frac{X_i - \mu}{\sigma})^2} \sim \chi_{n}^2$
+* Nieobciążony estymator wariancji wyraża się wzorem $S_n^2 = \frac{1}{n-1}\sum_{i=1}^n{(X_i - \mu)^2}$. Po przekształceniu otrzymujemy równość $\frac{(n-1) S_n^2}{\sigma^2} = K$
+* Niech teraz $k_1, k_2$ oznaczają odpowiednio kwantyle rzędu $\frac{\alpha}{2}$ i $1 - \frac{\alpha}{2}$ rozkładu $\chi_{n}^2$. Można zapisać zatem, że $1- \alpha = P(k_1 \leq \frac{(n-1) S_n^2}{\sigma^2} \leq k_2)$
+* Po przekształceniu otrzymamy przedział ufności na poziomie $1 - \alpha$ postaci $\frac{(n-1)S_n^2}{\chi_{1-\frac{\alpha}{2}, n}} \leq \sigma^2 \leq \frac{(n-1)S_n^2}{\chi_{\frac{\alpha}{2}, n}}$
+* W przypadku nieznanej średniej *(zadanie 7)*, przedział wygląda bardzo podobnie, jednak gdy zamiast $\mu$ użyjemy średniej próbkowej $\bar{X}$, należy zamienić $n$ stopni swobody na $n-1$.
+
+### Zadanie 6
+W dalszej części rozważamy wszystkie rozkłady oprócz Cauchy'ego, który jak już wiadomo jest patologizny. Estymacja przedziału dla wariancji przy znanej średniej dla n = 50 dała następujące wyniki:
+
+```{r echo=FALSE}
+load(file = 'results/zad6.results')
+zad6.results %>% filter(n == 50) %>% select(-c('pop_param_known', 'mi', 'est')) %>% knitr::kable() 
+```
+
+* dla rozkładu normalnego wynik jest zbliżony do teoretycznej wartości 0.95
+* pozostałe rozkłady wypadły gorzej - wynika to z tego, że wyznaczając przedział w takiej postaci założyliśmy, że próba pochodzi z rozkładu normalnego. Jak widać, gdy założenie nie jest spełnione taka konstrukcja nie działa.
+* dla rozkładu chi-kwadrat można zaobserwować wzrost odsetka wariancji mieszczących się w skonstruowanym przedziale ufności wraz ze wzrostem liczby stopni swobody - na podstawie przeprowadzonych dodatkowo testów wydaje się, że dąży on do wartości około 0.95. Jest tak, ponieważ dla dużej liczby stopni swobody chi-kwadrat przypomina rozkład normalny, więc założenie o normalności jest w przybliżeniu spełnione.
+* inne rozkłady nie wykazały powyższego zachowania.
+
+Wyniki dla innych liczebności próby są zbliżone, przykładowo:
+```{r echo=FALSE}
+zad6.results %>% filter(n != 50) %>% select(-c('pop_param_known', 'mi', 'est')) %>% knitr::kable() 
+```
+
+Z dodatkowych eksperymentów wynika, że wraz ze wzrostem $n$ wyniki dla rozkładu normalnego ponownie były coraz bliższe teoretycznej wartości.
+
+### Zadanie 8
+```{r echo=FALSE}
+load(file = 'results/zad8.results')
+zad8.results %>% filter(sigma == 1) %>% select(-c('pop_param_known', 'mi', 'est')) %>% knitr::kable() 
+```
+
+Wyniki są bardzo zbliżone do wyników poprzedniego zadania i nie trzeba nic dodawać po analizie tamtych wyników.
+
+### Zadanie 9
+Rozważmy proporcję $p$ obserwacji większych od 0 w próbie - ma ona rozkład dwumianowy $B(1,p)$. Zmienna $Z \approx \frac{\bar{X} - p}{\sqrt{\frac{\bar{X}(1 - \bar{X})}{n}}} \sim N(0,1)$, przy czym jest to asymptotyczne przybliżenie. Stąd poprzez przekształcenia analogiczne do tych w zadaniu 2, otrzymamy przedział ufności korzystający z kwantyli rozkładu standardowego, postaci
+$$1 - \alpha = P(\bar{X} - \mu \sqrt{\frac{\bar{X}(1 - \bar{X})}{n}}  \leq p \leq \bar{X} + \mu \sqrt{\frac{\bar{X}(1 - \bar{X})}{n}}$$, gdzie $\mu$ jest kwantylem normalnym rzędu $1 - \frac{\alpha}{2}$, a $\bar{X}$ oznacza odsetek sukcesów w wylosowanej próbie.
+
+```{r echo=FALSE}
+load(file = 'results/zad9.results')
+zad9.results %>% filter() %>% select(-c('pop_param_known', 'mi', 'est')) %>% knitr::kable() 
+```
+
+* w tym przypadku rodzaj rozkładu ani jego parametry nie mają znaczącego wpływu na wynik eksperymentu - ma to sens, gdyż wszystkie rozważane rozkłady są symetryczne względem 0 i z równym prawdopodobieństwem dają zmienne większe od zera. Co ciekawe najlepiej wypadły próby rozmiaru 20, ale może to być przypadkowe.
+
+### Wnioski
+Głównym wnioskiem pojawiającym się kilkukrotnie w zadaniach było to, że tworząc model w oparciu o pewne teoretyczne założenia, należy upewnić się czy rzeczwiście są one spełnione. W przeciwnym wypadku wyniki mogą nie mieć sensu, jak było przy wyznaczaniu przedziału ufności dla rozkładu Cauchy'ego w zadaniu 2 czy 4.

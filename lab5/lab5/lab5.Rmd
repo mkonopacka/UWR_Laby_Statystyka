@@ -1,0 +1,349 @@
+---
+title: "Statystyka - Laboratorium 5"
+author: "Martyna Konopacka"
+output: pdf_document  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+knitr::opts_chunk$set(fig.width = 10, fig.height = 5) 
+```
+```{r include=FALSE}
+library(tidyverse)
+library(stats)
+install.packages("viridis")
+library(viridis)
+```
+
+## Wprowadzenie i cele
+Rozważmy problem testowania hipotezy $H_0: F = G$ przeciwko $H_1: F \neq G$, gdzie $F,G$ są ciągłymi dystrybuantami nieznanych rozkładów, z których pochodzą próby $X_1, ... X_m; Y_1, ..., Y_n$ - na naszej liście $n = m$. Przyjmujemy, że testy będą prawostronne, na poziomie istotności $\alpha$. Rozważane testy są nieparametryczne - opierają się na statystykach rangowych, przez co mają zastosowanie również do danych innych niż liczbowe, ale dających się uporządkować. Drugą zaletą tego rodzaju testów jest możliwość stosowania ich bez założeń o ich rozkładzie cechy w populacji. 
+
+*Rangą $R_i$* nazwiemy liczbę przyporządkowaną obserwacji poprzez posortowanie wybranej zmiennej. Przykładowo dla $X = (1,7,3,10)$ rangi to $(1,3,2,4)$. Uwaga: dla rosnącego przekształcenia zmiennej losowej rangi pozostają bez zmian - to przyda się w późniejszych rozważaniach. Przykładowo $2X+7 = (9,21,13,27)$ - rangi pozostają takie same.
+
+*Testem* nazwiemy funkcję próby $\varphi(X)$. Na podstawie wartości $\varphi(X)$ podejmujemy decyzję: odrzucamy $H_0$ dla dużych wartosci funkcji.
+
+*Moc testu* definiujemy jako prawdpopodobieństwo słusznego odrzucenia hipotezy $H_1$ w zależności od parametru. $\gamma(\theta_0) = 1 - P(S(X) \leq c | H_1, \theta = \theta_0)$
+
+*Wartość krytyczna* to wartość, która dzieli przestrzeń możliwych wartości statystyki testowej $S(X)$ na dwa podzbiory - dla jednego z nich odrzucamy hipotezę zerową. W tym przypadku będą to przedziały na osi liczb rzeczywistych i hipotezę odrzucimy, gdy $S(X) \geq c$.
+
+#### Jak wyznaczamy wartości krytyczne?
+Liczba $\alpha$ reprezentuje prawdopodobieństwo popełnienia błędu typu I, czyli odrzucenia $H_0$, gdy jest ona prawdziwa. 
+$$\alpha = P(S(X) \geq c | H_0) = 1 - P(S(X) \leq c | H_0)$$
+$$P(S(X) \leq c | H_0) = 1 - \alpha$$
+zatem $c = F_S^{-1}(1 - \alpha)$ jest kwantylem rzędu $1 - \alpha$ rozkładu $S(X)$ przy $H_0$. Uwaga: nie znamy prawdziwego rozkładu statystyki testowej przy $H_0$, a jedynie rozkład asymptotyczny.
+
+Celem poniższego raportu jest wyznaczenie wartości krytycznych oraz zbadanie zachowania funkcji mocy w zależności od parametrów populacji dla testów: Wilcoxona (W), Ansari-Bradley'a (AB), Lepage'a (L) i Kołmogorowa-Smirnowa (KS).
+W zadaniach rozważałam od razu obie liczebności prób: $20$ i $50$.
+
+## Zadanie 1 + Zadanie 5
+Zadanie 1 stanowi wstęp do kolejnych zadań - problem został zawężony do rozkładu normalnego. W tym zadaniu zajmiemy się tylko obliczaniem wartości krytycznych. Na początek zdefiniujemy odpowiednie statystyki:
+
+```{r echo=TRUE}
+# implementacja wzoru (2) z listy; oblicza wartość statystyki T dla wybranej funkcji (testu) phi i połączonych prób X,Y;
+# funkcja rank(X) zwraca wektor rang obliczonych dla wektora X
+T_phi <- function(phi, X, Y){
+  Z <- c(X, Y)
+  m <- length(X)
+  n <- length(Y)
+  N <- n + m
+  s <- sqrt(m * n / N)
+  m1 <- mean(phi((rank(Z)[1:m] - 0.5)/N))
+  m2 <- mean(phi((rank(Z)[(m+1):N] - 0.5)/N))
+  return (s * (m1 - m2))
+}
+
+# implementacja funkcji (testów) phi1, phi2 z listy
+phi1 <- function(u){sqrt(3)*(2*u - 1)}
+phi2 <- function(u){sqrt(48)*(0.25 - abs(u - 0.5))}
+
+# statystyki zdefiniowane na liście
+W <- function(X, Y){T_phi(phi1, X, Y)^2}
+AB <- function(x, y){T_phi(phi2, X, Y)^2}
+L <- function(X, Y){W(X, Y) + AB(X, Y)}
+KS <- function(X, Y){
+  Z <- c(X, Y)
+  m <- length(X)
+  n <- length(Y)
+  N <- n + m
+  s <- sqrt(m*n/N)
+  # return (ks.test(X,Y)$statistic) # to jest bez czynnika z pierwiastkiem
+  return (s * ks.test(X, Y)$statistic) # zwróć wartość obliczoną przez funkcję ks.test odpowiadającą supremum we wzorze z listy
+}
+```
+
+Z użyciem powyższych funkcji generujemy wyniki. 
+
+```{r echo=FALSE}
+M <- 20 # użyty rozmiar próby
+A <- matrix(0, 10000, 4) # macierz z wynikami; wiersze to kolejne iteracje, kolumny
+set.seed(1)
+for (i in 1:10000){
+  X <- rnorm(M, 0, 1)
+  Y <- rnorm(M, 0, 1)
+  A[i, 1] <- W(X, Y)
+  A[i, 2] <- AB(X, Y)
+  A[i, 3] <- L(X, Y)
+  A[i, 4] <- KS(X, Y)
+}
+# colnames(A) <- c('W','AB','L','KS')
+# head(A) %>% knitr::kable(caption = 'Pierwsze wiersze macierzy z wynikami eksperymentu - obliczone wartości statystyk')
+```
+
+```{r}
+cW <- quantile(A[, 1], 0.95)
+cAB <- quantile(A[, 2], 0.95)
+cL <- quantile(A[,3], 0.95)
+cKS <- quantile(A[,4], 0.95)
+
+# z jakiegoś powodu ma tak być?
+# c(cW, qchisq(0.95, 1))
+# c(cAB, qchisq(0.95, 1))
+# c(cL, qchisq(0.95, 2))
+
+c(W = cW, AB = cAB, L = cL, KS = cKS) %>% 
+  knitr::kable(caption = 'Wartosci krytyczne; n = m = 20')
+```
+
+```{r}
+M <- 50 # użyty rozmiar próby
+A <- matrix(0, 10000, 4) # macierz z wynikami; wiersze to kolejne iteracje, kolumny
+set.seed(1)
+for (i in 1:10000){
+  X <- rnorm(M, 0, 1)
+  Y <- rnorm(M, 0, 1)
+  A[i, 1] <- W(X, Y)
+  A[i, 2] <- AB(X, Y)
+  A[i, 3] <- L(X, Y)
+  A[i, 4] <- KS(X, Y)
+}
+
+cW50 <- quantile(A[, 1], 0.95)
+cAB50 <- quantile(A[, 2], 0.95)
+cL50 <- quantile(A[,3], 0.95)
+cKS50 <- quantile(A[,4], 0.95)
+
+# z jakiegoś powodu ma tak być? Jest ok.
+# c(cW, qchisq(0.95, 1))
+# c(cAB, qchisq(0.95, 1))
+# c(cL, qchisq(0.95, 2))
+
+c(W = cW50, AB = cAB50, L = cL50, KS = cKS50) %>% knitr::kable(caption = 'Wartosci krytyczne; n = m = 50')
+```
+
+**Komentarz:**
+
+1. Wydaje się, że wartości zostały wyznaczone prawidłowo. W celu sprawdzenia tego porównałam je z kwantylami rzędu 95% z rozkładu chi-kwadrat (pierwsze trzy testy), jednak nie potrafię wyjaśnić dlaczego są one zbliżone. 
+2. Wyniki nie różnią się znacząco dla prób o liczebności 20 i 50.
+3. Korzystając z własności, że przekształcenie rosnące nie zmienia rang, można udowodnić, że użyty w zadaniu sposób wyznaczania wartości krytycznych jest poprawny dla dowolnych dwóch rozkładów $F = G$. Z tego powodu wyznaczone tutaj wartości zostaną użyte we wszystkich kolejnych zadaniach.
+
+## Zadanie 2
+```{r include=FALSE}
+# zestawy parametrów do poszczegolnych podpunktow
+# zadanie 2: normalny, log------
+N.i <- c(0,1,0.2,1)
+N.ii <- c(0,1,0.4,1)
+N.iii <- c(0,1,0.6,1)
+N.iv <- c(0,1,0.8,1)
+N.v <- c(0,1,1,1)
+N.vi <- c(0,1,1.2,1)
+N.vii <- c(0,1,1.4,1)
+# cauchy -----
+C.i <- c(0,1,0.2,1)
+C.ii <- c(0,1,0.5,1)
+C.iii <- c(0,1,1,1)
+C.iv <- c(0,1,1.5,1)
+C.v <- c(0,1,2,1)
+C.vi <- c(0,1,2.5,1)
+C.vii <- c(0,1,3,1)
+# zadanie 3
+N3.i <- c(0,1,0,1)
+N3.ii <- c(0,1,0,1.5)
+N3.iii <- c(0,1,0,2)
+N3.iv <- c(0,1,0,2.5)
+N3.v <- c(0,1,0,3)
+N3.vi <- c(0,1,0,3.5)
+N3.vii <- c(0,1,0,4)
+# cauchy -----
+C3.i <- c(0,1,0,1)
+C3.ii <- c(0,1,0,2)
+C3.iii <- c(0,1,0,3)
+C3.iv <- c(0,1,0,4)
+C3.v <- c(0,1,0,5)
+C3.vi <- c(0,1,0,6)
+C3.vii <- c(0,1,0,7)
+# zadanie 4: NL ---------------------
+N4.i <- c(0,1,0.2,1)
+N4.ii <- c(0,1,0.4,1.5)
+N4.iii <- c(0,1,0.6,2)
+N4.iv <- c(0,1,0.8,2.5)
+N4.v <- c(0,1,1,3)
+N4.vi <- c(0,1,1.2,3.5)
+N4.vii <- c(0,1,1.4,4)
+
+# cauchy -----
+C4.i <- c(0,1,0,1)
+C4.ii <- c(0,1,0.5,2)
+C4.iii <- c(0,1,1,3)
+C4.iv <- c(0,1,1.5,4)
+C4.v <- c(0,1,2,5)
+C4.vi <- c(0,1,2.5,6)
+C4.vii <- c(0,1,3,7)
+```
+
+Funkcję mocy oszacujemy jako odsetek obserwacji (obserwacjami są wyniki 10000 powtórzeń ekseprymentu) dla których nie popełnilibyśmy błędu typu II - a więc dla których na podstawie statystyki i wartości krytycznej odrzucamy hipotezę $H_0$. Sprowadza się to do obliczenia dla jakiego odsetka iteracji $S(X) \geq c$.
+```{r}
+# zwraca dataframe z parametrami eksperymentu i wynikiem testu
+f <- function(params, d = rnorm, n =20, iter = 10000, seed = 1, debug = FALSE){
+  set.seed(seed)
+  # liczenie ile razy odrzucono H0?
+  W = 0
+  AB = 0
+  L = 0
+  KS = 0
+  
+  name = as.character(substitute(d))
+  m1 = params[1]
+  s1 = params[2]
+  m2 = params[3]
+  s2 = params[4]
+  
+  # iteracje 
+   for(i in 1:iter){
+       X <- d(n, m1, s1) # UWAGA rlogis bierze jako argument loc & scale, a nie expval & sd
+       Y <- d(n, m2, s2)
+       
+       # obl. wartosci statystyk -------
+       sW = W(X,Y)
+       sAB = AB(X,Y)
+       sL = L(X,Y)
+       sKS = KS(X,Y)
+       if (debug == T){print(c(sW, sAB, sL, sKS))}
+  
+       # przyjmujemy wartosci krytyczne z zadania 1
+       # Czy odrzucamy H0? Jeśli statystyka przekroczyła wart. krytyczną, zwiększ licznik odrzuconych hipotez H0 -----
+       # dla n = 20
+       if (n == 20){
+        if (sW >= cW){W <- W+1}
+        if (sAB >= cAB){AB <- AB+1}
+        if (sL >= cL){L <- L+1}
+        if (sKS >= cKS){KS <- KS+1}
+       }
+       
+       # dla n = 50
+       if (n == 50){
+         if (sW >= cW50){W <- W+1}
+         if (sAB >= cAB50){AB <- AB+1}
+         if (sL >= cL50){L <- L+1}
+         if (sKS >= cKS50){KS <- KS+1}
+       }
+   }
+  
+  # zwróć wyniki -----------
+  return(data.frame(rozklad = factor(name),
+                    n = n,
+                    m1 = factor(m1),
+                    s1 = factor(s1),
+                    m2 = factor(m2),
+                    s2 = factor(s2),
+                    W = W/iter,
+                    AB = AB/iter,
+                    L = L/iter,
+                    KS = KS/iter))
+}
+```
+```{r include=FALSE}
+r <- matrix(nrow = 0, ncol = 10)
+for (p in list(N.i, N.ii, N.iii, N.iv, N.v, N.vi, N.vii)){
+  print(p)
+  r <- rbind(r, f(p), f(p, n = 50), f(p, rlogis), f(p, rlogis, n = 50))
+}
+for (p in list(C.i, C.ii, C.iii, C.iv, C.v, C.vi, C.vii)){
+  r <- rbind(r, f(p, rcauchy), f(p,rcauchy,50))
+}
+```
+```{r echo=FALSE}
+r %>%
+  gather(test, moc, W:KS) %>% 
+  mutate(m2 = factor(m2)) %>%
+  ggplot(aes(x = m2, y = moc, group = test, color = test)) +
+  geom_point() +
+  geom_line() +
+  facet_grid(vars(n), vars(rozklad), scales = 'free_x', shrink = TRUE) +
+  labs(title = 'Oszacowane funkcje mocy w zaleznosci od parametru m2', subtitle = 'Porownanie pomiedzy rozkladami i roznymi liczebnosciami prob') +
+  theme_bw()
+  
+```
+
+**Komentarz**
+
+1. Funkcje mocy dla testów Wilcoxona, Lepage'a i Kołmogorowa-Smirnowa wyglądają bardzo podobnie. Dla rozkładu normalnego i logistycznego są one rosnące. Intuicyjnie ma to sens, bo ze wzrostem $\mu_2$ ('m2') rośnie różnica pomiędzy rozkładami, z których generujemy próby, więc powinny być one łatwiejsze do rozróżnienia a ryzyko popełnienia błędu mniejsze. Jest to dobrze widoczne, gdy naszkicujemy rozkłady o różnych parametrach i zaznaczymy obszar związany z błędem typu II.
+2. W przypadku rozkładu Cauchy'ego wykres jest bardziej chaotyczny, co może mieć związek z dziwną naturą tego rozkładu - mimo, że testy nieparametryczne powinny działać dobrze niezależnie od rozkładu. 
+3. Można  zauważyć, że testy mają większą moc, gdy zwiększymy liczebność próby. Intuicyjnie, więcej danych powinno dawać mniejsze ryzyko popełnienia błędu.
+4. Test Ansari-Bradley'a odznacza się niską mocą - we wszystkich eksperymentach uzyskałam moc równą 0, co wydaje się nie mieć sensu i może być spowodowane złym sposobem wyliczania statystyki lub innym błędem.
+
+### Zadanie 3
+```{r include=FALSE}
+r3 <- matrix(nrow = 0, ncol = 10)
+for (p in list(N3.i, N3.ii, N3.iii, N3.iv, N3.v, N3.vi, N3.vii)){
+  print(p)
+  r3 <- rbind(r3, f(p), f(p, n = 50), f(p, rlogis), f(p, rlogis, n = 50))
+}
+for (p in list(C3.i, C3.ii, C3.iii, C3.iv, C3.v, C3.vi, C3.vii)){
+  r3 <- rbind(r3, f(p, rcauchy), f(p,rcauchy,50))
+}
+```
+```{r echo=FALSE}
+r3 %>%
+  gather(test, moc, W:KS) %>% 
+  mutate(s2 = factor(s2)) %>%
+  ggplot(aes(x = s2, y = moc, group = test, color = test)) +
+  geom_point() +
+  geom_line() +
+  facet_grid(vars(n), vars(rozklad), scales = 'free_x', shrink = TRUE) +
+  labs(title = 'Oszacowane funkcje mocy w zaleznosci od parametru s2', subtitle = 'Porownanie pomiedzy rozkladami i roznymi liczebnosciami prob') +
+  theme_bw()
+```
+
+**Komentarz:**
+
+1. Z wykresów wynika, że gdy rozkłady mają taki sam parametr $\mu$, a różnią się tylko parametrem skali, wszystkie testy oprócz testu KS mają moc równą lub bliską zero.
+2. Dla testu Kołmogorowa-Smirnowa widać wzrost mocy wraz ze wzrostem zarówno $n$, jak i różnicy pomiędzy parametrami.
+
+## Zadanie 4
+W tym zadaniu badamy zależność mocy od dwóch parametrów na raz, dlatego wybrany został inny sposób prezentacji wyników.
+Rozkłady różnią się równocześnie parametrami przesunięcia i skali.
+
+```{r include=FALSE}
+r4 <- matrix(nrow = 0, ncol = 10)
+for (p in list(N4.i, N4.ii, N4.iii, N4.iv, N4.v, N4.vi, N4.vii)){
+  print(p)
+  r4 <- rbind(r4, f(p), f(p, n = 50), f(p, rlogis), f(p, rlogis, n = 50))
+}
+for (p in list(C4.i, C4.ii, C4.iii, C4.iv, C4.v, C4.vi, C4.vii)){
+  r4<- rbind(r4, f(p, rcauchy), f(p,rcauchy,50))
+}
+```
+```{r echo=FALSE}
+r4 %>%
+  gather(test, moc, W:KS) %>% 
+  mutate(s2 = factor(s2), m2 = factor(m2)) %>%
+  ggplot(aes(x = m2, y = s2, group = test, color = moc)) +
+  geom_point(size = 5) +
+  facet_grid(vars(test), vars(n)) +
+  # facet_grid(vars(s2), vars(n), scales = 'free_x', shrink = TRUE) +
+  labs(title = 'Oszacowane funkcje mocy w zaleznosci od parametrow m2,s2', subtitle = 'Porownanie testow i liczebnosci prob')+
+  scale_color_continuous(limits=c(0, 1), breaks=seq(0, 1, by= 0.05)) +
+  # scale_size_continuous(limits=c(0, 1), breaks=seq(0, 1, by= 0.05)) +
+  guides(color = guide_legend(), size = guide_legend()) +
+  scale_color_viridis() +
+  theme_bw()
+```
+
+**Komentarz:**
+
+1. Z wykresu i dodatkowych analiz wynika, że największą moc w przypadku populacji o różniących się obu parametrach uzyskamy dla testu KS, jak największej liczebności i jak największej różnicy parametrów.
+2. Patrząc na powyższe wyniki ciężko wnioskować, czy większe znaczenie ma tutaj różnica $\sigma$, czy $\mu$.
+3. Dla testu AB wyniki ponownie są bliskie zero, a dla pozostałych dwóch testów moc jest mniejsza niż w przypadku testu KS, ale widać, że rośnie wraz ze wzrostem różnicy parametrów i rozmiarem próby.
+
+## Podsumowanie
+Eksperymenty wykazały, że wybór testu o największej mocy jest inny, gdy rozkłady różnią się parametrem przesunięcia lub skali. Ponadto, dla testów dla których moc nie jest bardzo mała lub zerowa, występuje wzrost mocy testu wraz ze zwiększaniem $n$ i różnicy pomiędzy rozkładami.

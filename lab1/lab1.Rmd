@@ -1,0 +1,429 @@
+---
+title: "Lista 1"
+author: "Martyna Konopacka"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(tidyverse)
+```
+### Zadanie 1
+Średni błąd kwadratowy obliczymy ze wzoru $MSE = E((\theta_0 - \theta)^{2})$,
+obciążenie ze wzoru $b = E(\theta)-\theta_0$, gdzie wartością oczekiwaną będzie średnia arytmetyczna, a wariancję za pomocą wbudowanej funkcji var(). Poniżej definiuję funkcję, która będzie zwracać wyniki dla danego podpunktu.
+
+```{r echo=TRUE}
+zadanie1 <- function(s, th, n = 50, iter = 10000, show_theta = FALSE, seed = 1){
+  # ust. ziarno generatora
+  set.seed(seed)
+  # utworzenie wektorów wag do definicji theta3 i theta4
+  an <- 0:n/n
+  w1 <- rnorm(n) %>% (function(v){v/sum(v)}) 
+  w2 <- dnorm(qnorm(an[-n])) - dnorm(qnorm(an[-1]))
+  # utworzenie dataframe do dołączania wyników poszczególnych eksperymentów
+  theta.dtf <- data.frame(th1 = numeric(0), 
+                          th2 = numeric(0),
+                          th3 = numeric(0),
+                          th4 = numeric(0)) 
+  # powtórzenie eksperymentu [iter] razy
+  for (i in 1:iter){
+    # losowanie próby z rozkładu normalnego
+    X <- rnorm(n, th, s)
+    # tworzenie wektora wartości theta
+    theta <- c(th1 = mean(X),
+               th2 = median(X),
+               th3 = do.call(function(x){w1%*%x}, list(X)),
+               th4 = do.call(function(x){w2%*%sort(x)}, list(X)))
+    # dołączenie nowych wartości theta do macierzy z wartościami theta iter x 4
+    theta.dtf[i, 1:4] <- theta
+  }
+  # możemy w tym momencie sprawdzić jak wygląda theta.dtf ([iter] x 4)
+  if (show_theta){print(head(theta.dtf, 4))}
+  # def. odpowiednie funkcje
+  MSE <- function(x){mean((x-th)^2)}
+  bias <- function(x){mean(x-th)}
+  # zwracamy podsumowanie jako wynik funkcji zadanie1
+  data.frame(MSE = sapply(theta.dtf, MSE),
+             bias = sapply(theta.dtf, bias),
+             var = sapply(theta.dtf, var)) %>% return()
+}
+```
+Dla $n = 50, \sigma = 1, \theta = 1$ otrzymałam następujące wyniki:
+```{r echo=FALSE}
+zad1a <- zadanie1(1,1)
+zad1a
+```
+$\theta_1$ ma najmniejsze obciążenie i średni błąd kwadratowy ze wszystkich estymatorów - można było się tego spodziewać, bo średnia arytmetyczna jest estymatorem największej wiarogodności rozkładu normalnego. Najmniejszą wariancję otrzymałam dla estymatora $\theta_4$ - powtórzyłam doświadczenie wywołując set.seed() na różnych wartościach i za każdym razem był to estymator o najmniejszej wariancji. Dla $\sigma = 1, \theta = 4$ otrzymałam wyniki:
+```{r echo=FALSE}
+zad1b <- zadanie1(1,4) 
+zad1b
+```
+Zmieniły się tylko wartości MSE i obciążenie $\theta_4$ - znacznie (bezwzględnie) wzrosły.  Dla $\sigma = 2, \theta = 1$:
+```{r echo=FALSE}
+zad1c <- zadanie1(2,1)
+zad1c
+```
+Wartości błędów są trochę większe, ale wciąż najlepiej (poza wariancją) wypada $\theta_1$. Wzorst wariancji
+wynika ze wzrostu odchylenia standardowego.
+
+### Zadanie 5
+Rozważamy obserwacje z rozkładu $f(x;\theta) = \frac{e^{-(x-\theta)}}{(1+e^{-(x-\theta)})^2}$ 
+Wyznaczenie jawnego wzoru na mle dla rozkładu logistycznego jest niemożliwe, więc skorzystamy z przybliżania go metodą Newtona. Doświadczenie powtórzymy dla różnych punktów startowych. Funkcja zwróci podsumowanie
+wraz ze wszystkimi parametrami eksperymentu i ilością kroków które zrobił algorytm. Na początek definiuję funkcje
+liczące pochodne funkcji logwiarogodności dla tego rozkładu.
+```{r echo=TRUE}
+logis_logl.dx <- function(X, s, theta){
+  n = length(X)
+  expr = exp(-(X-theta)/s)
+  return(n - 2*sum(expr/(1+expr)))
+}
+
+logis_logl.dx2 <- function(X, s, theta){
+  expr = exp(-(X-theta)/s)
+  return(-2/s*sum(expr/(1+expr)^2))
+}
+
+zadanie5 <- function(s, th, n, start.f, start.name, toler = 1/100, k_max = 15, iter = 10000, seed = 1){
+  set.seed(seed)
+  # def. odpowiednie funkcje
+  MSE <- function(x){mean((x-th)^2)}
+  bias <- function(x){mean(x-th)}
+  # tu będą dołączane uzyskiwane wartości parametru oraz liczby kroków
+  theta.V <- numeric(0)
+  steps.V <- numeric(0)
+  # powtórzenie eksperymentu [iter] razy
+  for (i in 1:iter){
+    # losowanie próby z rozkładu logistycznego
+    X <- rlogis(n, th, s)
+    # obliczenie punktu startowego - przyjmuję za niego na razie średnią arytmetyczną
+    th.curr <- start.f(X)
+    # użycie algorytmu
+    steps <- 0
+    while(steps < k_max){
+      # obl. krok z użyciem aktualnej wartości theta
+      step <- -logis_logl.dx(X, s, th.curr)/logis_logl.dx2(X, s, th.curr)
+      # czasem algorytm przy bezsensownym punkcie startowym wychodzi do nieskonczoności - w tej sytuacji
+      # od razu kończymy i wpisujemy wartość NA:
+      if(step %in% c(Inf, -Inf, NaN)){
+        return(data.frame(th = th,
+                   sd = s,
+                   n = n,
+                   MSE = NA, 
+                   var = NA,
+                   bias = NA,
+                   avg_steps = NA, 
+                   toler = toler, 
+                   start = start.name))}
+
+      # jeśli krok jest już mniejszy niż tolerancja, zakończ
+      if (abs(step) < toler){break} 
+      
+      # jeśli nie, update x i zwiększ liczbę kroków
+      th.curr <- th.curr + step
+      steps <- steps + 1
+    }
+    # po ostatniej iteracji algorytmu dołączamy wyniki do wektora:
+    theta.V[i] <- th.curr
+    steps.V[i] <- steps
+  }
+  
+  # podsumowanie
+  data.frame(th = th,
+             sd = s,
+             n = n,
+             MSE = MSE(theta.V), 
+             var = var(theta.V),
+             bias = bias(theta.V),
+             avg_steps = mean(steps.V), 
+             toler = toler, 
+             start = start.name) %>% return()
+}
+```
+
+```{r echo=FALSE}
+zad5.results <- 
+  zadanie5(1,1,50,mean,'mean(X)') %>%
+  rbind(zadanie5(1,4,50,mean,'mean(X)')) %>%
+  rbind(zadanie5(2,1,50,mean,'mean(X)')) %>%
+  rbind(zadanie5(1,1,50,median, 'median(X)')) %>%
+  rbind(zadanie5(2,1,50,median, 'median(X)')) %>%
+  rbind(zadanie5(1,4,50,median, 'median(X)')) %>%
+  rbind(zadanie5(1,4,50,mean,'mean(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(2,1,50,mean,'mean(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,50,mean,'mean(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,1,50,min,'min(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(2,1,50,min,'min(X))', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,50,min,'min(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,50,min,'min(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,1,50,var,'var(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(2,1,50,var,'var(X))', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,50,var,'var(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,50,var,'var(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,1,50,min,'min(X)', toler = 0.01)) %>%
+  rbind(zadanie5(2,1,50,min,'min(X))', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,50,min,'min(X)', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,50,min,'min(X)', toler = 0.01)) %>%
+  rbind(zadanie5(1,1,50,var,'var(X)', toler = 0.01)) %>%
+  rbind(zadanie5(2,1,50,var,'var(X))', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,50,var,'var(X)', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,50,var,'var(X)', toler = 0.01))
+
+zad5.results
+```
+### Zad. 5 - komentarz
+1. przy wyborze na punkt startowy wariancji lub minimum algorytm w ogóle nie działa - w pewnym momencie wartości rozbiegają do nieskonczoności.
+2. znalazłam informacje o tym, że dobrym wyborem punktu starowego będzie średnia arytmetyczna,
+bo jest estymatorem zgodnym dla tego rozkładu. Skuteczność potwierdzają wyniki. Testowałam również medianę, która daje nienajgorsze wyniki. 
+3. średnia i mediana są ogólnie bardzo dobre - mają niskie obciążenie. Zauważyłam też, że wariancja prawie pokrywa się z MSE (różnice są rzędu 10^-6) - wynika to właśnie z niskich obciążeń.
+
+### Zadanie 6
+```{r}
+cauchy_logl.dx <- function(X, s, theta){
+  return(sum((X - theta)/(s^2 + (X-theta)^2)))
+}
+
+cauchy_logl.dx2 <- function(X, s, theta){
+  return(sum(((X - theta )^2- s^2)/(s^2+ (X - theta)^2)^2))
+}
+```
+
+
+Rozkład Cauchyego jest bardziej problematyczny, więc już domyślnie wybieramy większe k_max i tolerancję.
+```{r}
+zadanie6 <- function(s, th, start.f, start.name, n = 50, toler = 0.05, k_max = 200, iter = 10000, seed = 1){
+  set.seed(seed)
+  # def. odpowiednie funkcje
+  MSE <- function(x){mean((x-th)^2)}
+  bias <- function(x){mean(x-th)}
+  # tu będą dołączane uzyskiwane wartości parametru oraz liczby kroków
+  theta.V <- numeric(0)
+  steps.V <- numeric(0)
+  # powtórzenie eksperymentu [iter] razy
+  for (i in 1:iter){
+    # losowanie próby z rozkładu logistycznego
+    X <- rcauchy(n, th, s)
+    # obliczenie punktu startowego - przyjmuję za niego na razie średnią arytmetyczną
+    th.curr <- start.f(X)
+    # użycie algorytmu
+    steps <- 0
+    while(steps < k_max){
+      step <- -cauchy_logl.dx(X, s, th.curr)/cauchy_logl.dx2(X, s, th.curr)
+   
+      if(step %in% c(Inf, -Inf, NaN)){
+        print(step)
+        return(data.frame(th = th,
+                          sd = s,
+                          n = n,
+                          MSE = NA, 
+                          var = NA,
+                          bias = NA,
+                          avg_steps = NA, 
+                          toler = toler, 
+                          start = start.name))}
+      
+      if (abs(step) < toler){break} 
+      th.curr <- th.curr + step
+      steps <- steps + 1
+    }
+    # po ostatniej iteracji algorytmu dołączamy wyniki do wektora:
+    theta.V[i] <- th.curr
+    steps.V[i] <- steps
+  }
+
+  data.frame(th = th,
+             sd = s,
+             n = n,
+             MSE = MSE(theta.V), 
+             var = var(theta.V),
+             bias = bias(theta.V),
+             avg_steps = mean(steps.V), 
+             toler = toler, 
+             start = start.name) %>% return()
+}
+
+zad6.results <- 
+  zadanie6(1,1,mean,'mean(X)') %>%
+  rbind(zadanie6(1,4,mean,'mean(X)')) %>%
+  rbind(zadanie6(2,1,mean,'mean(X)')) %>%
+  rbind(zadanie6(1,1,median, 'median(X)')) %>%
+  rbind(zadanie6(2,1,median, 'median(X)')) %>%
+  rbind(zadanie6(1,4,median, 'median(X)')) %>%
+  rbind(zadanie6(2,1,var, 'var(X)')) %>%
+  rbind(zadanie6(1,4,var, 'var(X)'))
+
+zad6.results
+```
+
+Jedyne sensowne wartości już przy tej dokładności dostajemy, gdy jako punkt startowy wybierzemy medianę. Mediana może być dobra, ze względu na odporność na obserwacje odstające, których powinno być stosunkowo dużo w rozkładzie z ciężkimi ogonami. Średnia nie ma sensu, bo średnia dla rozkładu Cauchy'ego nie jest zdefiniowana i średnia próbkowa nie zbiega się do średniej dla populacji (bo ona nie istnieje). Tak samo jest z wariancją - wartości błędów są astronomiczne. Zauważyłam też, że przy takiej tolerancji mediana ma liczbę kroków średnio mniejszą niż 1. Dla tolerancji 0.0001 wyniki były podobne a śr. liczba kroków pomiędzy 1 a 2.
+
+
+```{r echo=FALSE}
+# początek zadania 7
+zad1a
+```
+
+```{r echo=FALSE}
+zad1a_20 <- zadanie1(1,1, n =20)
+zad1a_20
+```
+
+```{r echo=FALSE}
+zad1a_20 - zad1a
+```
+
+```{r echo=FALSE}
+zad1b
+```
+
+```{r echo=FALSE}
+zad1b_20 <- zadanie1(1,4, n =20)
+zad1b_20
+```
+```{r echo=FALSE}
+zad1b_20 - zad1b
+```
+```{r echo=FALSE}
+zad1c
+```
+
+```{r echo=FALSE}
+zad1c_20 <- zadanie1(2,1, n =20)
+zad1c_20
+```
+```{r echo=FALSE}
+zad1c_20 - zad1c
+```
+```{r echo=TRUE}
+zad1a_100 <- zadanie1(1,1,n=100)
+zad1a_100 - zad1a
+```
+
+Podpunkt b:
+```{r echo=TRUE}
+zad1b_100 <- zadanie1(1,4,n=100)
+zad1b_100 - zad1b
+```
+Podpunkt c:
+```{r echo=TRUE}
+zad1c_100 <- zadanie1(2,1,n=100)
+zad1c_100 - zad1c
+```
+
+```{r include=FALSE}
+zad5_20.results <- 
+  zadanie5(1,1,20,mean,'mean(X)') %>%
+  rbind(zadanie5(1,4,20,mean,'mean(X)')) %>%
+  rbind(zadanie5(2,1,20,mean,'mean(X)')) %>%
+  rbind(zadanie5(1,1,20,median, 'median(X)')) %>%
+  rbind(zadanie5(2,1,20,median, 'median(X)')) %>%
+  rbind(zadanie5(1,4,20,median, 'median(X)')) %>%
+  rbind(zadanie5(1,4,20,mean,'mean(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(2,1,20,mean,'mean(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,20,mean,'mean(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,1,20,min,'min(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(2,1,20,min,'min(X))', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,20,min,'min(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,20,min,'min(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,1,20,var,'var(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(2,1,20,var,'var(X))', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,20,var,'var(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,20,var,'var(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,1,20,min,'min(X)', toler = 0.01)) %>%
+  rbind(zadanie5(2,1,20,min,'min(X))', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,20,min,'min(X)', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,20,min,'min(X)', toler = 0.01)) %>%
+  rbind(zadanie5(1,1,20,var,'var(X)', toler = 0.01)) %>%
+  rbind(zadanie5(2,1,20,var,'var(X))', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,20,var,'var(X)', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,20,var,'var(X)', toler = 0.01))
+```
+```{r include=FALSE}
+zad5_100.results <- 
+  zadanie5(1,1,100,mean,'mean(X)') %>%
+  rbind(zadanie5(1,4,100,mean,'mean(X)')) %>%
+  rbind(zadanie5(2,1,100,mean,'mean(X)')) %>%
+  rbind(zadanie5(1,1,100,median, 'median(X)')) %>%
+  rbind(zadanie5(2,1,100,median, 'median(X)')) %>%
+  rbind(zadanie5(1,4,100,median, 'median(X)')) %>%
+  rbind(zadanie5(1,4,100,mean,'mean(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(2,1,100,mean,'mean(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,100,mean,'mean(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,1,100,min,'min(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(2,1,100,min,'min(X))', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,100,min,'min(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,100,min,'min(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,1,100,var,'var(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(2,1,100,var,'var(X))', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,100,var,'var(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,4,100,var,'var(X)', toler = 0.000001)) %>%
+  rbind(zadanie5(1,1,100,min,'min(X)', toler = 0.01)) %>%
+  rbind(zadanie5(2,1,100,min,'min(X))', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,100,min,'min(X)', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,100,min,'min(X)', toler = 0.01)) %>%
+  rbind(zadanie5(1,1,100,var,'var(X)', toler = 0.01)) %>%
+  rbind(zadanie5(2,1,100,var,'var(X))', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,100,var,'var(X)', toler = 0.01)) %>%
+  rbind(zadanie5(1,4,100,var,'var(X)', toler = 0.01))
+```
+
+```{r include=FALSE}
+zad6_20.results <- 
+  zadanie6(1,1,mean,'mean(X)', n =20) %>%
+  rbind(zadanie6(1,4,mean,'mean(X)', n = 20)) %>%
+  rbind(zadanie6(2,1,mean,'mean(X)', n = 20)) %>%
+  rbind(zadanie6(1,1,median, 'median(X)', n = 20)) %>%
+  rbind(zadanie6(2,1,median, 'median(X)', n = 20)) %>%
+  rbind(zadanie6(1,4,median, 'median(X)', n = 20)) %>%
+  rbind(zadanie6(2,1,var, 'var(X)', n =20)) %>%
+  rbind(zadanie6(1,4,var, 'var(X)', n =20))
+```
+
+```{r include=FALSE}
+zad6_100.results <- 
+  zadanie6(1,1,mean,'mean(X)', n =100) %>%
+  rbind(zadanie6(1,4,mean,'mean(X)', n = 100)) %>%
+  rbind(zadanie6(2,1,mean,'mean(X)', n = 100)) %>%
+  rbind(zadanie6(1,1,median, 'median(X)', n = 100)) %>%
+  rbind(zadanie6(2,1,median, 'median(X)', n = 100)) %>%
+  rbind(zadanie6(1,4,median, 'median(X)', n = 100)) %>%
+  rbind(zadanie6(2,1,var, 'var(X)', n =100)) %>%
+  rbind(zadanie6(1,4,var, 'var(X)', n =100))
+```
+
+### Zadanie 7 - obserwacje po przeprowadzeniu eksperymentów
+1. Dla zadania 1 sprawdziłam czy zgodnie z moimi przewidywaniami wartości bezwzględne błędów będą tym mniejsze im większa próba:
+```{r echo=TRUE}
+abs(zad1a_20) - abs(zad1a) > 0 # czy n = 50 ma mniejszy błąd niż n = 20?
+abs(zad1a) - abs(zad1a_100) > 0  # czy n = 100 ma mniejszy błąd niż n = 50?
+```
+```{r echo=TRUE}
+abs(zad1b_20) - abs(zad1b) > 0 # czy n = 50 ma mniejszy błąd niż n = 20?
+abs(zad1b) - abs(zad1b_100) > 0  # czy n = 100 ma mniejszy błąd niż n = 50?
+```
+```{r echo=TRUE}
+abs(zad1c_20) - abs(zad1c) > 0 # czy n = 50 ma mniejszy błąd niż n = 20?
+abs(zad1c) - abs(zad1c_100) > 0  # czy n = 100 ma mniejszy błąd niż n = 50?
+```
+Okazało się, że rzeczywiście jest tak dla najlepszego estymatora - przypadku innych niekoniecznie. W szczególności dla $\theta_3$ (najgorszego ze wszystkich estymatorów) n = 20 daje lepsze wyniki niż n =50.
+
+2. W zadaniu 5 wybrałam do porównania obserwacje z dobrym punktem startowym (medianą lub średnią):
+```{r}
+abs(zad5_20.results %>% filter(start %in% c('mean(X)', 'median(X)')) %>% select(MSE:bias)) - abs(zad5.results %>% filter(start %in% c('mean(X)', 'median(X)')) %>% select(MSE:bias)) > 0 # czy n = 50 ma mniejszy błąd niż n = 20?
+abs(zad5.results %>% filter(start %in% c('mean(X)', 'median(X)')) %>% select(MSE:bias)) - abs(zad5_100.results %>% filter(start %in% c('mean(X)', 'median(X)')) %>% select(MSE:bias)) > 0 # czy n = 100 ma mniejszy błąd niż n = 50?
+```
+Jedynie obciążenie okazało się bezwzględnie większe dla n = 50 niż n = 20. Porównałam też n = 20 i n = 100 i tam wyniki były już w porządku - większa próbka daje lepsze szacowanie parametru. Może wynikać to z faktu, że n = 20 jest zbyt małym rozmiarem próby - przyjmuje się np. że CTG działa dla prób rozmiaru co najmniej 30. Poniżej wyniki są jeszcze zbyt losowe, żeby wyciągać wnioski. Tak samo było zresztą w wynikach dot. zadania 1.
+
+```{r}
+abs(zad6_20.results %>% select(MSE:bias)) - abs(zad6.results %>% select(MSE:bias)) > 0 # czy n = 50 ma mniejszy błąd niż n = 20?
+abs(zad6.results %>% select(MSE:bias)) - abs(zad6_100.results %>% select(MSE:bias)) > 0 # czy n = 50 ma mniejszy błąd niż n = 20?
+```
+
+3. Dla rozkładu Cauchyego zwiększenie liczebności próby pogorszyło jakość tych estymatorów, które były słabei polepszyło jakość dobrych estymatorów.
+
+
+
+
